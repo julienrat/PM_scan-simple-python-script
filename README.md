@@ -18,9 +18,10 @@ PMScan est un capteur de qualité de l'air connecté qui mesure les particules f
 
 ### 3. 🏠 [Intégration Home Assistant](docs/HOMEASSISTANT.md)
 - Intégration native dans Home Assistant
-- Installation via HACS
+- Installation via HACS (Home Assistant Community Store)
 - Découverte automatique des appareils
 - Tableaux de bord et automatisations
+- ⚠️ Nécessite Home Assistant 2023.8.0 ou plus récent
 
 ## 🔧 Fonctionnalités Communes
 
@@ -50,7 +51,11 @@ PMScan est un capteur de qualité de l'air connecté qui mesure les particules f
 
 1. **Utilisateur Home Assistant** :
    - Suivez le [guide d'installation Home Assistant](docs/HOMEASSISTANT.md)
-   - Installation facile via HACS
+   - Installation via HACS :
+     1. Ajoutez ce dépôt comme "Intégration personnalisée"
+     2. Recherchez "PMScan" dans les intégrations HACS
+     3. Cliquez sur "Télécharger"
+     4. Redémarrez Home Assistant
    - Interface graphique intégrée
 
 2. **Développeur Python** :
