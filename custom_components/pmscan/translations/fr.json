@@ -3,15 +3,16 @@
         "step": {
             "user": {
                 "title": "PMScan",
-                "description": "Recherche automatique des appareils PMScan...",
+                "description": "Recherche des appareils PMScan... {error_message}",
                 "data": {
-                    "address": "Appareil"
+                    "address": "Sélectionnez votre appareil PMScan"
                 }
             }
         },
         "abort": {
-            "not_supported": "Appareil non supporté",
-            "already_configured": "L'appareil est déjà configuré"
+            "not_supported": "Cet appareil n'est pas un PMScan",
+            "already_configured": "Cet appareil PMScan est déjà configuré",
+            "no_devices_found": "Aucun appareil PMScan trouvé sur le réseau"
         }
     },
     "entity": {
