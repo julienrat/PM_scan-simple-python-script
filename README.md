@@ -1,113 +1,95 @@
-# 🌟 PMScan Reader
+# 🌟 PMScan - Capteur de Qualité de l'Air
 
 ## 📝 Description
-PMScan Reader est un programme Python permettant de lire les données en temps réel d'un capteur de particules fines PMScan via Bluetooth Low Energy (BLE). Le programme permet de mesurer la qualité de l'air en affichant les concentrations de particules PM1.0, PM2.5 et PM10.0, ainsi que la température et l'humidité.
+PMScan est un capteur de qualité de l'air connecté qui mesure les particules fines (PM1.0, PM2.5, PM10.0), la température et l'humidité. Ce dépôt contient trois implémentations différentes pour utiliser votre capteur PMScan :
 
-Le PMScan est un appareil portable et autonome qui permet de :
-- 📊 Mesurer la qualité de l'air en temps réel
-- 🔋 Fonctionner sur batterie rechargeable via USB-C
-- 📱 Se connecter sans fil via Bluetooth
-- 💾 Stocker les données en mémoire interne (selon modèle)
+### 1. 🐍 [Script Python](docs/PYTHON.md)
+- Lecture directe des données via Bluetooth Low Energy
+- Interface en ligne de commande
+- Idéal pour les projets DIY et l'intégration dans vos propres scripts
 
-## ⚙️ Prérequis
-- Python 3.7+
-- Bibliothèques Python :
-  - bleak (pour la communication BLE)
-  - asyncio (pour la gestion asynchrone)
-  - struct (pour le décodage des données)
-- Un appareil PMScan
-- Un adaptateur Bluetooth compatible BLE
+### 2. 🌐 [Interface Web](docs/WEB.md)
+- Interface web moderne et responsive
+- Connexion directe via Web Bluetooth
+- Graphiques en temps réel
+- Fonctionne dans le navigateur sans installation
 
-## 💻 Installation
-1. Clonez ce dépôt :
-```bash
-git clone https://github.com/julienrat/PM_scan-simple-python-script.git
-cd PM_scan-simple-python-script
-```
+### 3. 🏠 [Intégration Home Assistant](docs/HOMEASSISTANT.md)
+- Intégration native dans Home Assistant
+- Installation via HACS
+- Découverte automatique des appareils
+- Tableaux de bord et automatisations
 
-2. Installez les dépendances :
-```bash
-pip install -r requirements.txt
-```
+## 🔧 Fonctionnalités Communes
 
-## ✨ Fonctionnalités
-- 🔍 Scan et connexion automatique aux appareils PMScan disponibles
-- 📊 Lecture en temps réel des données :
-  - PM1.0 (μg/m³) : Particules de diamètre inférieur à 1.0 micromètre
-  - PM2.5 (μg/m³) : Particules de diamètre inférieur à 2.5 micromètres
-  - PM10.0 (μg/m³) : Particules de diamètre inférieur à 10 micromètres
-  - Température (°C) : Température interne du boîtier
-  - Humidité (%) : Humidité interne du boîtier
-- 🔄 Affichage clair et actualisé des mesures
-- 🤝 Gestion de la connexion/déconnexion Bluetooth
-- 🔌 Détection automatique de la charge USB
+### Mesures
+- PM1.0 (μg/m³) : Particules < 1.0 micromètre
+- PM2.5 (μg/m³) : Particules < 2.5 micromètres
+- PM10.0 (μg/m³) : Particules < 10 micromètres
+- Température (°C)
+- Humidité (%)
 
-## 🚀 Utilisation
-1. Allumez votre capteur PMScan :
-   - Appui long 3 secondes sur le bouton tactile
-   - Attendez que l'indicateur PM devienne coloré (~15 sec)
+### Indicateurs LED
+- 📶 **Bluetooth** : 
+  - 🔵 Clignotant : En attente
+  - 🔵 Fixe : Connecté
+- 🔋 **Batterie** :
+  - 🔴 Rouge : Batterie faible
+  - 🟠 Orange clignotant : En charge
+  - 🟢 Vert : Chargé
+- 🌈 **Qualité de l'air** :
+  - 🟢 Vert : Excellente (PM10 < 10 μg/m³)
+  - 🟡 Jaune : Bonne (PM10 10-30 μg/m³)
+  - 🟠 Orange : Moyenne (PM10 30-50 μg/m³)
+  - 🔴 Rouge : Mauvaise (PM10 50-80 μg/m³)
+  - 🟣 Violet : Très mauvaise (PM10 > 80 μg/m³)
 
-2. Lancez le programme :
-```bash
-python pmscan_reader.py
-```
+## 🚀 Par où commencer ?
 
-3. Sélectionnez votre appareil PMScan dans la liste des appareils Bluetooth détectés
-4. Les données seront affichées en temps réel à l'écran
-5. Pour arrêter le programme, utilisez Ctrl+C
+1. **Utilisateur Home Assistant** :
+   - Suivez le [guide d'installation Home Assistant](docs/HOMEASSISTANT.md)
+   - Installation facile via HACS
+   - Interface graphique intégrée
 
-## 💡 Indicateurs du PMScan
+2. **Développeur Python** :
+   - Consultez la [documentation Python](docs/PYTHON.md)
+   - Exemples de code et API
+   - Possibilités d'intégration
 
-### 📶 Indicateur de connexion BLE
-- 🔵 Clignotant : En attente de connexion
-- 🔵 Fixe : Connecté
+3. **Utilisateur Web** :
+   - Accédez à la [documentation Web](docs/WEB.md)
+   - Interface prête à l'emploi
+   - Visualisation en temps réel
 
-### 🔋 Indicateur de batterie
-Sans charge :
-- 🔴 Rouge fixe : Batterie faible
+## 📚 Documentation Technique
 
-En charge :
-- 🟠 Orange clignotant : En charge
-- 🟢 Vert fixe : Charge complète
-
-### 🌈 Indicateur PM (qualité de l'air)
-- ⚪ Blanc : Démarrage du capteur (~15 sec)
-- 🟢 Vert : PM10 < 10 μg/m³ (Excellente qualité)
-- 🟡 Jaune : PM10 entre 10 et 30 μg/m³ (Bonne qualité)
-- 🟠 Orange : PM10 entre 30 et 50 μg/m³ (Qualité moyenne)
-- 🔴 Rouge : PM10 entre 50 et 80 μg/m³ (Mauvaise qualité)
-- 🟣 Violet : PM10 > 80 μg/m³ (Très mauvaise qualité)
-
-## 🔧 Notes techniques
-- 📡 Communication BLE :
+### Communication Bluetooth
+- Service UUID : f3641900-00b0-4240-ba50-05ca45bf8abc
+- Caractéristiques :
   - Données temps réel : f3641901-00b0-4240-ba50-05ca45bf8abc
   - Configuration temps : f3641906-00b0-4240-ba50-05ca45bf8abc
-- 🌡️ Les données de température et d'humidité sont des mesures internes au boîtier
-- 📊 Les valeurs PM sont divisées par 10 pour obtenir les mesures réelles en μg/m³
-- 💾 Capacité de stockage interne (selon modèle) : jusqu'à 6145 enregistrements
-- ⚡ Autonomie : variable selon l'utilisation et la configuration
 
-## ❓ Dépannage
-- 🔍 Si le capteur n'est pas détecté :
-  - Vérifiez qu'il est bien allumé (LED clignotante)
-  - Vérifiez que le Bluetooth de votre ordinateur est activé
-  - Assurez-vous d'être à portée du capteur (< 10m)
-- 🔌 En cas de problème de connexion :
-  - Éteignez et rallumez le capteur
-  - Redémarrez le programme
-  - Vérifiez que le capteur n'est pas déjà connecté à un autre appareil
-- 🔋 Si la batterie est faible :
-  - Rechargez via le port USB-C
-  - Utilisez un chargeur 5V standard
+### Format des Données
+- Structure binaire : `<IBBHHHHHHh`
+  - Timestamp (4 bytes)
+  - Réservé (2 bytes)
+  - PM1.0, PM2.5, PM10.0 (2 bytes chacun)
+  - Température, Humidité (2 bytes chacun)
+  - Réservé (2 bytes)
+
+## 🤝 Contribution
+Les contributions sont les bienvenues ! Voici comment vous pouvez aider :
+- 🐛 Signaler des bugs
+- 💡 Proposer des améliorations
+- 📝 Améliorer la documentation
+- 🔧 Soumettre des corrections
 
 ## 📄 Licence
-Ce programme est distribué sous licence libre.
+Ce projet est sous licence libre.
 
 ## 📬 Contact
-Pour toute question ou problème :
-- 🐛 Ouvrez une issue sur le dépôt GitHub
-- 📧 Contactez le développeur via GitHub
-- 📚 Consultez la documentation complète du PMScan
+- 🐛 [Signaler un problème](https://github.com/julienrat/PM_scan-simple-python-script/issues)
+- 📧 [Contacter le développeur](https://github.com/julienrat)
 
 ## 🙏 Remerciements
-Merci à tous les contributeurs qui ont participé à l'amélioration de ce projet !
+Merci à tous les contributeurs qui ont participé à ce projet !
