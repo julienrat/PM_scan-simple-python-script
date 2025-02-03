@@ -144,62 +144,89 @@ function updateQualityIndicator(pm10) {
     indicator.className = `quality-level ${className}`;
 }
 
+// Mise à jour de l'état de charge
+function updateChargingStatus(state) {
+    const statusElement = document.getElementById('chargingStatus');
+    switch (state) {
+        case 0:
+            statusElement.textContent = 'Non branché';
+            break;
+        case 1:
+            statusElement.textContent = 'En charge';
+            break;
+        case 2:
+            statusElement.textContent = 'Charge terminée';
+            break;
+        default:
+            statusElement.textContent = 'État inconnu';
+    }
+}
+
 // Parsage des données reçues
 function parseRealTimeData(dataView) {
-    // Vérification de la taille des données
-    if (dataView.byteLength !== 20) {
-        console.error(`ERREUR: Taille des données invalide: ${dataView.byteLength} bytes (attendu: 20 bytes)`);
+    try {
+        // Vérification de la taille des données
+        if (dataView.byteLength !== 20) {
+            console.error(`ERREUR: Taille des données invalide: ${dataView.byteLength} bytes (attendu: 20 bytes)`);
+            return null;
+        }
+
+        // Lecture des données
+        const timestamp = dataView.getUint32(0, true);
+        const state = dataView.getUint8(4);
+        const cmd = dataView.getUint8(5);
+        const particles_count = dataView.getUint16(6, true);
+        const pm1_0 = dataView.getUint16(8, true);
+        const pm2_5 = dataView.getUint16(10, true);
+        const pm10_0 = dataView.getUint16(12, true);
+        const temp = dataView.getUint16(14, true);
+        const humidity = dataView.getUint16(16, true);
+
+        // Vérification des valeurs PM pendant le démarrage
+        if (pm1_0 === 0xFFFF || pm2_5 === 0xFFFF || pm10_0 === 0xFFFF) {
+            console.log("ATTENTION: Capteur en phase de démarrage, valeurs PM non valides");
+            return null;
+        }
+
+        return {
+            timestamp: timestamp,
+            state: state,
+            command: cmd,
+            particles_count: particles_count,
+            pm1_0: pm1_0 / 10.0,
+            pm2_5: pm2_5 / 10.0,
+            pm10_0: pm10_0 / 10.0,
+            temperature: temp / 10.0,
+            humidity: humidity / 10.0
+        };
+    } catch (error) {
+        console.error('Erreur lors du parsage des données:', error);
         return null;
     }
+}
 
-    // Lecture des données
-    const timestamp = dataView.getUint32(0, true);
-    const state = dataView.getUint8(4);
-    const cmd = dataView.getUint8(5);
-    const particles_count = dataView.getUint16(6, true);
-    const pm1_0 = dataView.getUint16(8, true);
-    const pm2_5 = dataView.getUint16(10, true);
-    const pm10_0 = dataView.getUint16(12, true);
-    const temp = dataView.getUint16(14, true);
-    const humidity = dataView.getUint16(16, true);
-
-    // Vérification des valeurs PM pendant le démarrage
-    if (pm1_0 === 0xFFFF || pm2_5 === 0xFFFF || pm10_0 === 0xFFFF) {
-        console.log("ATTENTION: Capteur en phase de démarrage, valeurs PM non valides");
-        return null;
-    }
-
-    // Calcul des valeurs avec division par 10
-    const temp_value = temp / 10.0;
-    let humidity_value = humidity / 10.0;
-
-    // Vérification des valeurs limites
-    if (humidity_value > 100) {
-        console.warn(`ATTENTION: Valeur d'humidité anormale détectée: ${humidity_value}%`);
-        humidity_value = Math.min(humidity_value, 100);
-    }
-
-    if (temp_value < -40 || temp_value > 85) {
-        console.warn(`ATTENTION: Température hors limites: ${temp_value}°C`);
-    }
-
-    return {
-        timestamp: timestamp,
-        state: state,
-        command: cmd,
-        particles_count: particles_count,
-        pm1_0: pm1_0 / 10.0,
-        pm2_5: pm2_5 / 10.0,
-        pm10_0: pm10_0 / 10.0,
-        temperature: temp_value,
-        humidity: humidity_value
-    };
+// Gestion de la déconnexion
+function onDisconnected() {
+    console.log('Périphérique déconnecté');
+    document.getElementById('deviceInfo').classList.add('d-none');
+    document.getElementById('connectionStatus').textContent = 'Déconnecté';
+    const connectBtn = document.getElementById('connectBtn');
+    connectBtn.textContent = 'Connecter PMScan';
+    connectBtn.classList.remove('btn-danger', 'connecting');
+    connectBtn.classList.add('btn-primary');
+    bluetoothDevice = null;
 }
 
 // Gestion de la connexion Bluetooth
 async function connectToPMScan() {
     try {
         const connectBtn = document.getElementById('connectBtn');
+        
+        if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+            await bluetoothDevice.gatt.disconnect();
+            return;
+        }
+
         connectBtn.classList.add('connecting');
         connectBtn.textContent = 'Connexion en cours...';
 
@@ -215,7 +242,7 @@ async function connectToPMScan() {
         await characteristic.startNotifications();
         characteristic.addEventListener('characteristicvaluechanged', (event) => {
             const data = parseRealTimeData(event.target.value);
-            updateUI(data);
+            if (data) updateUI(data);
         });
 
         // Configuration des notifications pour la batterie
@@ -223,15 +250,17 @@ async function connectToPMScan() {
         await batteryLevelChar.startNotifications();
         batteryLevelChar.addEventListener('characteristicvaluechanged', (event) => {
             const value = event.target.value.getUint8(0);
-            document.getElementById('batteryLevel').textContent = value;
-            updateBatteryIcon(value);
+            const batteryLevel = document.getElementById('batteryLevel');
+            batteryLevel.style.width = `${value}%`;
+            document.getElementById('batteryPercentage').textContent = `${value}%`;
         });
 
         // Lecture initiale du niveau de batterie
         const batteryLevel = await batteryLevelChar.readValue();
         const batteryValue = batteryLevel.getUint8(0);
-        document.getElementById('batteryLevel').textContent = batteryValue;
-        updateBatteryIcon(batteryValue);
+        const batteryLevelElement = document.getElementById('batteryLevel');
+        batteryLevelElement.style.width = `${batteryValue}%`;
+        document.getElementById('batteryPercentage').textContent = `${batteryValue}%`;
 
         // Configuration des notifications pour l'état de charge
         const batteryChargingChar = await service.getCharacteristic(BATTERY_CHARGING_UUID);
@@ -268,69 +297,8 @@ async function connectToPMScan() {
     }
 }
 
-function updateBatteryIcon(level) {
-    const batteryIcon = document.getElementById('batteryIcon');
-    if (level >= 75) {
-        batteryIcon.className = 'bi bi-battery-full';
-    } else if (level >= 50) {
-        batteryIcon.className = 'bi bi-battery-half';
-    } else if (level >= 25) {
-        batteryIcon.className = 'bi bi-battery-low';
-    } else {
-        batteryIcon.className = 'bi bi-battery';
-    }
-}
-
-function updateChargingStatus(state) {
-    const chargingStatus = document.getElementById('chargingStatus');
-    const batteryIcon = document.getElementById('batteryIcon');
-    
-    switch (state) {
-        case 0:
-            chargingStatus.textContent = 'Non branché';
-            batteryIcon.classList.remove('text-success', 'text-warning');
-            break;
-        case 1:
-            chargingStatus.textContent = 'Pré-charge';
-            batteryIcon.classList.add('text-warning');
-            batteryIcon.classList.remove('text-success');
-            break;
-        case 2:
-            chargingStatus.textContent = 'En charge';
-            batteryIcon.classList.add('text-success');
-            batteryIcon.classList.remove('text-warning');
-            break;
-        case 3:
-            chargingStatus.textContent = 'Chargé';
-            batteryIcon.classList.add('text-success');
-            batteryIcon.classList.remove('text-warning');
-            break;
-        default:
-            chargingStatus.textContent = 'Inconnu';
-            batteryIcon.classList.remove('text-success', 'text-warning');
-    }
-}
-
-// Gestion de la déconnexion
-function onDisconnected() {
-    const connectBtn = document.getElementById('connectBtn');
-    connectBtn.textContent = 'Connecter PMScan';
-    connectBtn.classList.remove('connecting', 'btn-danger');
-    connectBtn.classList.add('btn-primary');
-    
-    document.getElementById('connectionStatus').textContent = 'Déconnecté';
-    document.getElementById('deviceInfo').classList.add('d-none');
-}
-
 // Initialisation
 document.addEventListener('DOMContentLoaded', () => {
     initChart();
-    
-    document.getElementById('connectBtn').addEventListener('click', async () => {
-        if (!bluetoothDevice || !bluetoothDevice.gatt.connected) {
-            await connectToPMScan();
-        } else {
-            await bluetoothDevice.gatt.disconnect();
-        }
-    });
+    document.getElementById('connectBtn').addEventListener('click', connectToPMScan);
 }); 
