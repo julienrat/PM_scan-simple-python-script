@@ -7,6 +7,8 @@ from typing import Any
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
+    async_register_callback,
+    BluetoothChange,
 )
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -18,7 +20,7 @@ from homeassistant.const import (
     PERCENTAGE,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
@@ -35,10 +37,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up PMScan sensors."""
     address = entry.data["address"]
+    _LOGGER.debug("Configuration des capteurs PMScan pour l'adresse %s", address)
 
     sensors = []
     for discovery_info in async_discovered_service_info(hass):
         if discovery_info.address == address:
+            _LOGGER.debug("Appareil PMScan trouvé: %s", discovery_info.name)
             sensors.extend([
                 PMScanPM1Sensor(discovery_info),
                 PMScanPM25Sensor(discovery_info),
@@ -48,7 +52,37 @@ async def async_setup_entry(
             ])
             break
 
+    if not sensors:
+        _LOGGER.error("Aucun appareil PMScan trouvé à l'adresse %s", address)
+        return
+
     async_add_entities(sensors)
+
+    @callback
+    def _async_update_ble(
+        service_info: BluetoothServiceInfoBleak, change: BluetoothChange
+    ) -> None:
+        """Handle updated bluetooth data."""
+        if service_info.address != address:
+            return
+
+        _LOGGER.debug(
+            "Mise à jour Bluetooth reçue - Adresse: %s, Données: %s",
+            service_info.address,
+            service_info.manufacturer_data,
+        )
+
+        for sensor in sensors:
+            sensor.update_from_bluetooth(service_info)
+
+    entry.async_on_unload(
+        async_register_callback(
+            hass,
+            _async_update_ble,
+            {address},
+            BluetoothChange.ADVERTISEMENT,
+        )
+    )
 
 class PMScanSensor(SensorEntity):
     """Representation of a PMScan sensor."""
@@ -60,6 +94,11 @@ class PMScanSensor(SensorEntity):
         self._attr_native_unit_of_measurement = None
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._value = None
+        _LOGGER.debug(
+            "Initialisation du capteur PMScan - Nom: %s, Adresse: %s",
+            discovery_info.name,
+            discovery_info.address,
+        )
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -71,15 +110,27 @@ class PMScanSensor(SensorEntity):
             "model": "PMScan",
         }
 
-    async def async_update(self) -> None:
-        """Update the sensor."""
-        if self._discovery_info.service_data and REAL_TIME_DATA_UUID in self._discovery_info.service_data:
-            data = self._discovery_info.service_data[REAL_TIME_DATA_UUID]
-            self._value = self._parse_data(data)
-            _LOGGER.debug("Données mises à jour pour %s: %s", self.name, self._value)
+    def update_from_bluetooth(self, service_info: BluetoothServiceInfoBleak) -> None:
+        """Update sensor state from Bluetooth data."""
+        if not service_info.manufacturer_data:
+            return
 
-    def _parse_data(self, data: bytes) -> float | None:
-        """Parse sensor data."""
+        try:
+            # Recherche des données dans manufacturer_data
+            for company_id, data in service_info.manufacturer_data.items():
+                _LOGGER.debug(
+                    "Données fabricant reçues - ID: %s, Données: %s",
+                    company_id,
+                    data.hex(),
+                )
+                self._value = self._parse_manufacturer_data(data)
+                self.async_write_ha_state()
+                break
+        except Exception as e:
+            _LOGGER.error("Erreur lors de la mise à jour des données: %s", str(e))
+
+    def _parse_manufacturer_data(self, data: bytes) -> float | None:
+        """Parse manufacturer data."""
         try:
             # Implémentation spécifique dans les classes enfants
             return None
@@ -103,7 +154,7 @@ class PMScanPM1Sensor(PMScanSensor):
         """Return the PM1.0 value."""
         return self._value
 
-    def _parse_data(self, data: bytes) -> float | None:
+    def _parse_manufacturer_data(self, data: bytes) -> float | None:
         """Parse PM1.0 data."""
         if len(data) >= 2:
             return int.from_bytes(data[0:2], byteorder='little') / 10.0
@@ -125,7 +176,7 @@ class PMScanPM25Sensor(PMScanSensor):
         """Return the PM2.5 value."""
         return self._value
 
-    def _parse_data(self, data: bytes) -> float | None:
+    def _parse_manufacturer_data(self, data: bytes) -> float | None:
         """Parse PM2.5 data."""
         if len(data) >= 4:
             return int.from_bytes(data[2:4], byteorder='little') / 10.0
@@ -147,7 +198,7 @@ class PMScanPM10Sensor(PMScanSensor):
         """Return the PM10 value."""
         return self._value
 
-    def _parse_data(self, data: bytes) -> float | None:
+    def _parse_manufacturer_data(self, data: bytes) -> float | None:
         """Parse PM10 data."""
         if len(data) >= 6:
             return int.from_bytes(data[4:6], byteorder='little') / 10.0
@@ -169,7 +220,7 @@ class PMScanTemperatureSensor(PMScanSensor):
         """Return the temperature value."""
         return self._value
 
-    def _parse_data(self, data: bytes) -> float | None:
+    def _parse_manufacturer_data(self, data: bytes) -> float | None:
         """Parse temperature data."""
         if len(data) >= 8:
             return int.from_bytes(data[6:8], byteorder='little') / 10.0
@@ -191,7 +242,7 @@ class PMScanHumiditySensor(PMScanSensor):
         """Return the humidity value."""
         return self._value
 
-    def _parse_data(self, data: bytes) -> float | None:
+    def _parse_manufacturer_data(self, data: bytes) -> float | None:
         """Parse humidity data."""
         if len(data) >= 10:
             return int.from_bytes(data[8:10], byteorder='little') / 10.0
