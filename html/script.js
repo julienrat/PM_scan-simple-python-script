@@ -68,7 +68,12 @@ function initChart() {
 
 // Mise à jour de l'interface utilisateur
 function updateUI(data) {
+    if (!data) return;
+    
     // Mise à jour des valeurs actuelles
+    document.getElementById('state').textContent = `0x${data.state.toString(16).toUpperCase().padStart(2, '0')}`;
+    document.getElementById('command').textContent = `0x${data.command.toString(16).toUpperCase().padStart(2, '0')}`;
+    document.getElementById('particles').textContent = data.particles_count;
     document.getElementById('pm1').textContent = data.pm1_0.toFixed(1);
     document.getElementById('pm25').textContent = data.pm2_5.toFixed(1);
     document.getElementById('pm10').textContent = data.pm10_0.toFixed(1);
@@ -124,13 +129,53 @@ function updateQualityIndicator(pm10) {
 
 // Parsage des données reçues
 function parseRealTimeData(dataView) {
+    // Vérification de la taille des données
+    if (dataView.byteLength !== 20) {
+        console.error(`ERREUR: Taille des données invalide: ${dataView.byteLength} bytes (attendu: 20 bytes)`);
+        return null;
+    }
+
+    // Lecture des données
+    const timestamp = dataView.getUint32(0, true);
+    const state = dataView.getUint8(4);
+    const cmd = dataView.getUint8(5);
+    const particles_count = dataView.getUint16(6, true);
+    const pm1_0 = dataView.getUint16(8, true);
+    const pm2_5 = dataView.getUint16(10, true);
+    const pm10_0 = dataView.getUint16(12, true);
+    const temp = dataView.getUint16(14, true);
+    const humidity = dataView.getUint16(16, true);
+
+    // Vérification des valeurs PM pendant le démarrage
+    if (pm1_0 === 0xFFFF || pm2_5 === 0xFFFF || pm10_0 === 0xFFFF) {
+        console.log("ATTENTION: Capteur en phase de démarrage, valeurs PM non valides");
+        return null;
+    }
+
+    // Calcul des valeurs avec division par 10
+    const temp_value = temp / 10.0;
+    let humidity_value = humidity / 10.0;
+
+    // Vérification des valeurs limites
+    if (humidity_value > 100) {
+        console.warn(`ATTENTION: Valeur d'humidité anormale détectée: ${humidity_value}%`);
+        humidity_value = Math.min(humidity_value, 100);
+    }
+
+    if (temp_value < -40 || temp_value > 85) {
+        console.warn(`ATTENTION: Température hors limites: ${temp_value}°C`);
+    }
+
     return {
-        timestamp: dataView.getUint32(0, true),
-        pm1_0: dataView.getUint16(8, true) / 10.0,
-        pm2_5: dataView.getUint16(10, true) / 10.0,
-        pm10_0: dataView.getUint16(12, true) / 10.0,
-        temperature: dataView.getUint16(14, true) / 10.0,
-        humidity: dataView.getUint16(16, true) / 10.0
+        timestamp: timestamp,
+        state: state,
+        command: cmd,
+        particles_count: particles_count,
+        pm1_0: pm1_0 / 10.0,
+        pm2_5: pm2_5 / 10.0,
+        pm10_0: pm10_0 / 10.0,
+        temperature: temp_value,
+        humidity: humidity_value
     };
 }
 
