@@ -231,7 +231,20 @@ async function connectToPMScan() {
         connectBtn.textContent = 'Connexion en cours...';
 
         bluetoothDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ services: [PMSCAN_SERVICE_UUID] }]
+            filters: [{ services: [PMSCAN_SERVICE_UUID] }],
+            optionalServices: [
+                REAL_TIME_DATA_UUID,
+                MEMORY_DATA_UUID,
+                TEMP_HUMID_ALERT_UUID,
+                BATTERY_LEVEL_UUID,
+                BATTERY_CHARGING_UUID,
+                CURRENT_TIME_UUID,
+                ACQUISITION_INTERVAL_UUID,
+                POWER_MODE_UUID,
+                TEMP_HUMID_THRESHOLD_UUID,
+                DISPLAY_SETTINGS_UUID,
+                BATTERY_HEARTBEAT_UUID
+            ]
         });
 
         const server = await bluetoothDevice.gatt.connect();
