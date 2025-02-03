@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import asyncio
 import struct
+from datetime import datetime, timedelta
 from typing import Any
 
 from bleak import BleakClient
@@ -27,6 +28,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.util import dt as dt_util
 
 from . import DOMAIN
 
@@ -42,6 +44,9 @@ DEFAULT_MEASUREMENT_INTERVAL = 5
 # Intervalle de mesure minimum et maximum (en secondes)
 MIN_MEASUREMENT_INTERVAL = 1
 MAX_MEASUREMENT_INTERVAL = 3600
+
+# Délai maximum entre deux mesures avant de considérer les données comme périmées
+MAX_TIME_BETWEEN_UPDATES = timedelta(seconds=10)
 
 def parse_notification_data(data: bytearray) -> dict[str, float]:
     """Parse notification data from PMScan device."""
@@ -96,41 +101,59 @@ async def async_setup_entry(
 
     async def connect_and_subscribe():
         """Connect to device and subscribe to notifications."""
-        device = async_ble_device_from_address(hass, address)
-        if not device:
-            _LOGGER.error("Appareil non trouvé: %s", address)
-            return
+        while True:
+            try:
+                device = async_ble_device_from_address(hass, address)
+                if not device:
+                    _LOGGER.error("Appareil non trouvé: %s", address)
+                    await asyncio.sleep(5)
+                    continue
 
-        def notification_handler(sender: int, data: bytearray) -> None:
-            """Handle notification from PMScan device."""
-            _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
-            parsed_data = parse_notification_data(data)
-            if parsed_data:
-                for sensor in sensors:
-                    if sensor.value_type in parsed_data:
-                        sensor.update_value(parsed_data[sensor.value_type])
-
-        try:
-            async with BleakClient(device, timeout=20.0) as client:
-                _LOGGER.info("Connexion établie avec le PMScan %s", address)
-                
-                # Configuration de l'intervalle de mesure
-                interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
-                await client.write_gatt_char(MEASUREMENT_INTERVAL_UUID, interval_bytes)
-                _LOGGER.info("Intervalle de mesure configuré à %d secondes", measurement_interval)
-                
-                # Activation des notifications
-                await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
-                _LOGGER.info("Notifications activées pour %s", REAL_TIME_DATA_UUID)
-                
-                # Maintenir la connexion active
-                while True:
-                    await asyncio.sleep(1)
+                async with BleakClient(device, timeout=20.0) as client:
+                    _LOGGER.info("Connexion établie avec le PMScan %s", address)
                     
-        except Exception as e:
-            _LOGGER.error("Erreur lors de la connexion au PMScan: %s", str(e))
-            await asyncio.sleep(5)  # Attendre avant de réessayer
-            hass.async_create_task(connect_and_subscribe())
+                    # Configuration de l'intervalle de mesure
+                    interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
+                    await client.write_gatt_char(MEASUREMENT_INTERVAL_UUID, interval_bytes)
+                    _LOGGER.info("Intervalle de mesure configuré à %d secondes", measurement_interval)
+
+                    last_update = None
+                    check_interval = asyncio.create_task(asyncio.sleep(0))
+
+                    def notification_handler(sender: int, data: bytearray) -> None:
+                        """Handle notification from PMScan device."""
+                        nonlocal last_update
+                        _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
+                        parsed_data = parse_notification_data(data)
+                        if parsed_data:
+                            last_update = dt_util.utcnow()
+                            for sensor in sensors:
+                                if sensor.value_type in parsed_data:
+                                    sensor.update_value(parsed_data[sensor.value_type])
+
+                    # Activation des notifications
+                    await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
+                    _LOGGER.info("Notifications activées pour %s", REAL_TIME_DATA_UUID)
+
+                    # Boucle de vérification des mises à jour
+                    while True:
+                        try:
+                            await check_interval
+                            current_time = dt_util.utcnow()
+                            
+                            if last_update is None or current_time - last_update > MAX_TIME_BETWEEN_UPDATES:
+                                _LOGGER.warning("Pas de mise à jour reçue depuis %s secondes, reconnexion...", 
+                                             MAX_TIME_BETWEEN_UPDATES.total_seconds())
+                                break
+
+                            check_interval = asyncio.create_task(asyncio.sleep(measurement_interval))
+                            
+                        except asyncio.CancelledError:
+                            break
+
+            except Exception as e:
+                _LOGGER.error("Erreur lors de la connexion au PMScan: %s", str(e))
+                await asyncio.sleep(5)
 
     # Démarrer la connexion en arrière-plan
     hass.async_create_task(connect_and_subscribe())
