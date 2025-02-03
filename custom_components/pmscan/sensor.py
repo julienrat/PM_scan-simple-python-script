@@ -80,31 +80,33 @@ _LOGGER.debug("État charge: %s", BATTERY_CHARGING_UUID)
 def parse_notification_data(data: bytearray) -> dict[str, Any]:
     """Parse notification data from PMScan device."""
     try:
-        if len(data) < 16:
-            _LOGGER.error("Taille des données invalide: %d bytes (attendu: minimum 16 bytes)", len(data))
+        if len(data) < 20:
+            _LOGGER.error("Taille des données invalide: %d bytes (attendu: 20 bytes)", len(data))
             return {}
 
         _LOGGER.debug("Données brutes: %s", ' '.join(f'{x:02X}' for x in data))
         
-        # Format: XX FA A0 67 00 11 PM1L PM1H PM25L PM25H PM10L PM10H TEMPL TEMPH HUML HUMH
-        # XX: Compteur
-        # FA A0 67: En-tête fixe
-        # 00 11: Commande
-        # PM1L PM1H: PM1.0 (valeur = PM1H << 8 | PM1L)
-        # PM25L PM25H: PM2.5 (valeur = PM25H << 8 | PM25L)
-        # PM10L PM10H: PM10 (valeur = PM10H << 8 | PM10L)
-        # TEMPL TEMPH: Température (valeur = (TEMPH << 8 | TEMPL) / 10.0)
-        # HUML HUMH: Humidité (valeur = (HUMH << 8 | HUML) / 10.0)
-        
-        if data[1:4] != b'\xfa\xa0\x67':
-            _LOGGER.error("En-tête invalide: %s", ' '.join(f'{x:02X}' for x in data[1:4]))
-            return {}
+        # Format: AA AA AA AA BB CC DD DD EE EE FF FF GG GG HH HH II II XX XX
+        # AA AA AA AA: Timestamp (uint32)
+        # BB: NextPM State byte
+        # CC: NextPM Command ID byte
+        # DD DD: Particles count/ml (PM 10.0)
+        # EE EE: PM1.0 (μg/m3) (diviser par 10)
+        # FF FF: PM2.5 (μg/m3) (diviser par 10)
+        # GG GG: PM10.0 (μg/m3) (diviser par 10)
+        # HH HH: Temperature (°C) (diviser par 10)
+        # II II: Humidity (%) (diviser par 10)
+        # XX XX: Reserved
             
-        pm1_0 = float(data[7] << 8 | data[6])
-        pm2_5 = float(data[9] << 8 | data[8])
-        pm10_0 = float(data[11] << 8 | data[10])
-        temp = float(data[13] << 8 | data[12]) / 10.0
-        humidity = float(data[15] << 8 | data[14]) / 10.0
+        timestamp = int.from_bytes(data[0:4], byteorder='little')
+        state = data[4]
+        command = data[5]
+        particles = int.from_bytes(data[6:8], byteorder='little')
+        pm1_0 = float(int.from_bytes(data[8:10], byteorder='little')) / 10.0
+        pm2_5 = float(int.from_bytes(data[10:12], byteorder='little')) / 10.0
+        pm10_0 = float(int.from_bytes(data[12:14], byteorder='little')) / 10.0
+        temp = float(int.from_bytes(data[14:16], byteorder='little')) / 10.0
+        humidity = float(int.from_bytes(data[16:18], byteorder='little')) / 10.0
         
         # Vérification des valeurs
         if pm1_0 > 1000 or pm2_5 > 1000 or pm10_0 > 1000:
@@ -119,8 +121,10 @@ def parse_notification_data(data: bytearray) -> dict[str, Any]:
             _LOGGER.warning("Température hors limites: %f°C", temp)
             
         result = {
-            "state": data[0],
-            "command": (data[4] << 8) | data[5],
+            "timestamp": timestamp,
+            "state": state,
+            "command": command,
+            "particles_count": particles,
             "pm1_0": pm1_0,
             "pm2_5": pm2_5,
             "pm10": pm10_0,
