@@ -36,8 +36,11 @@ PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
 REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
 MEASUREMENT_INTERVAL_UUID = "f3641902-00b0-4240-ba50-05ca45bf8abc"
 
-# Intervalle de mesure en secondes (1 mesure toutes les 5 secondes)
+# Intervalle de mesure par défaut en secondes
 DEFAULT_MEASUREMENT_INTERVAL = 5
+# Intervalle de mesure minimum et maximum (en secondes)
+MIN_MEASUREMENT_INTERVAL = 1
+MAX_MEASUREMENT_INTERVAL = 3600
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigType, async_add_entities: AddEntitiesCallback
@@ -45,6 +48,11 @@ async def async_setup_entry(
     """Set up PMScan sensors."""
     address = entry.data["address"]
     _LOGGER.debug("Configuration des capteurs PMScan pour l'adresse %s", address)
+
+    # Récupération de l'intervalle de mesure depuis les options
+    measurement_interval = entry.options.get("measurement_interval", DEFAULT_MEASUREMENT_INTERVAL)
+    measurement_interval = max(MIN_MEASUREMENT_INTERVAL, min(measurement_interval, MAX_MEASUREMENT_INTERVAL))
+    _LOGGER.debug("Intervalle de mesure configuré: %d secondes", measurement_interval)
 
     sensors = []
     for discovery_info in async_discovered_service_info(hass):
@@ -73,9 +81,9 @@ async def async_setup_entry(
                 _LOGGER.debug("Connexion établie avec le PMScan")
                 
                 # Configuration de l'intervalle de mesure
-                interval_bytes = DEFAULT_MEASUREMENT_INTERVAL.to_bytes(2, byteorder='little')
+                interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
                 await client.write_gatt_char(MEASUREMENT_INTERVAL_UUID, interval_bytes)
-                _LOGGER.debug("Intervalle de mesure configuré à %d secondes", DEFAULT_MEASUREMENT_INTERVAL)
+                _LOGGER.debug("Intervalle de mesure configuré à %d secondes", measurement_interval)
                 
                 # Activation des notifications
                 await client.start_notify(REAL_TIME_DATA_UUID, lambda sender, data: handle_notification(data, sensors))
@@ -103,7 +111,7 @@ async def async_setup_entry(
         async_register_callback(
             hass,
             _async_update_ble,
-            {address},
+            {"address": address},
             BluetoothChange.ADVERTISEMENT,
         )
     )

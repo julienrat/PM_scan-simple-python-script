@@ -176,29 +176,36 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     @staticmethod
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
+    @callback
+    def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
         return PMScanOptionsFlow(config_entry)
 
 class PMScanOptionsFlow(config_entries.OptionsFlow):
-    """Handle PMScan options."""
+    """Handle options."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    def __init__(self, config_entry):
         """Initialize options flow."""
         self.config_entry = config_entry
-        _LOGGER.debug("Initialisation du flux d'options pour %s", config_entry.title)
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_init(self, user_input=None):
         """Manage the options."""
         if user_input is not None:
-            _LOGGER.debug("Nouvelles options: %s", user_input)
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "measurement_interval",
+                        default=self.config_entry.options.get(
+                            "measurement_interval", DEFAULT_MEASUREMENT_INTERVAL
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=MIN_MEASUREMENT_INTERVAL, max=MAX_MEASUREMENT_INTERVAL)
+                    ),
+                }
+            ),
         ) 
