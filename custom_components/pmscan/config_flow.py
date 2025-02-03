@@ -6,6 +6,7 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.core import callback
 from homeassistant import config_entries
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
@@ -16,7 +17,6 @@ from homeassistant.components.bluetooth import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.core import callback
 
 from . import DOMAIN
 from .sensor import (
@@ -31,6 +31,37 @@ _LOGGER = logging.getLogger(__name__)
 PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
 # Nom partiel pour identifier un PMScan
 PMSCAN_NAME_PREFIX = "PMScan"
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for PMScan integration."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = {
+            vol.Optional(
+                "measurement_interval",
+                default=self.config_entry.options.get(
+                    "measurement_interval", DEFAULT_MEASUREMENT_INTERVAL
+                ),
+            ): vol.All(
+                vol.Coerce(int),
+                vol.Range(min=MIN_MEASUREMENT_INTERVAL, max=MAX_MEASUREMENT_INTERVAL)
+            ),
+        }
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(options)
+        )
 
 class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for PMScan."""
@@ -187,35 +218,4 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
-
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for PMScan integration."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Manage the options."""
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        options = {
-            vol.Optional(
-                "measurement_interval",
-                default=self.config_entry.options.get(
-                    "measurement_interval", DEFAULT_MEASUREMENT_INTERVAL
-                ),
-            ): vol.All(
-                vol.Coerce(int),
-                vol.Range(min=MIN_MEASUREMENT_INTERVAL, max=MAX_MEASUREMENT_INTERVAL)
-            ),
-        }
-
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(options)
-        ) 
+        return OptionsFlowHandler(config_entry) 
