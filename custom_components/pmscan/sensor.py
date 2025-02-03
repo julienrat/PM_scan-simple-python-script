@@ -86,35 +86,47 @@ def parse_notification_data(data: bytearray) -> dict[str, Any]:
 
         _LOGGER.debug("Données brutes: %s", ' '.join(f'{x:02X}' for x in data))
         
-        # Format: AA AA AA AA BB CC DD DD EE EE FF FF GG GG HH HH II II XX XX
-        timestamp, state, cmd, particles_count, pm1_0, pm2_5, pm10_0, temp, humidity = struct.unpack("<IBBHHHHHHxx", data)
+        # Format: CC F9 A0 67 00 11 XX YY ZZ WW VV UU TT SS RR QQ
+        # CC: Compteur
+        # F9 A0 67: En-tête fixe
+        # 00 11: Commande
+        # XX YY: PM1.0 (YY.XX µg/m³)
+        # ZZ WW: PM2.5 (WW.ZZ µg/m³)
+        # VV UU: PM10 (UU.VV µg/m³)
+        # TT SS: Température (SS.TT °C)
+        # RR QQ: Humidité (QQ.RR %)
         
-        # Vérification des valeurs PM pendant le démarrage
-        if pm1_0 == 0xFFFF or pm2_5 == 0xFFFF or pm10_0 == 0xFFFF:
-            _LOGGER.warning("Capteur en phase de démarrage, valeurs PM non valides")
+        if data[1:4] != b'\xf9\xa0\x67':
+            _LOGGER.error("En-tête invalide")
             return {}
+            
+        pm1_0 = (data[7] << 8 | data[6]) / 10.0
+        pm2_5 = (data[9] << 8 | data[8]) / 10.0
+        pm10_0 = (data[11] << 8 | data[10]) / 10.0
+        temp = (data[13] << 8 | data[12]) / 10.0
+        humidity = (data[15] << 8 | data[14]) / 10.0
         
-        # Calcul et vérification des valeurs
-        temp_value = temp / 10.0
-        humidity_value = humidity / 10.0
+        # Vérification des valeurs
+        if pm1_0 > 1000 or pm2_5 > 1000 or pm10_0 > 1000:
+            _LOGGER.warning("Valeurs PM anormales détectées: PM1.0=%f, PM2.5=%f, PM10=%f", 
+                          pm1_0, pm2_5, pm10_0)
+            return {}
+            
+        if humidity > 100:
+            _LOGGER.warning("Valeur d'humidité anormale détectée: %f%%", humidity)
+            humidity = min(humidity, 100)
         
-        if humidity_value > 100:
-            _LOGGER.warning("Valeur d'humidité anormale détectée: %f%%", humidity_value)
-            humidity_value = min(humidity_value, 100)
-        
-        if temp_value < -40 or temp_value > 85:
-            _LOGGER.warning("Température hors limites: %f°C", temp_value)
-        
+        if temp < -40 or temp > 85:
+            _LOGGER.warning("Température hors limites: %f°C", temp)
+            
         result = {
-            "state": state,
-            "command": cmd,
-            "particles_count": particles_count,
-            "pm1_0": pm1_0 / 10.0,
-            "pm2_5": pm2_5 / 10.0,
-            "pm10": pm10_0 / 10.0,
-            "temperature": temp_value,
-            "humidity": humidity_value,
-            "timestamp": timestamp,
+            "state": data[0],
+            "command": (data[4] << 8) | data[5],
+            "pm1_0": pm1_0,
+            "pm2_5": pm2_5,
+            "pm10": pm10_0,
+            "temperature": temp,
+            "humidity": humidity,
         }
         
         _LOGGER.debug("Données analysées: %s", result)
