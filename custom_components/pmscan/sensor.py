@@ -52,15 +52,14 @@ def parse_notification_data(data: bytearray) -> dict[str, float]:
     """Parse notification data from PMScan device."""
     try:
         _LOGGER.debug("Analyse des données brutes: %s", data.hex())
-        # Format des données: PM1.0, PM2.5, PM10, Température, Humidité
-        # Chaque valeur est sur 2 octets, divisée par 10 pour avoir la valeur réelle
-        values = struct.unpack("<HHHHH", data[3:13])
+        # Format des données: timestamp, state, cmd, particles, PM1.0, PM2.5, PM10, Temp, Humidity
+        timestamp, state, cmd, particles, pm1_0, pm2_5, pm10_0, temp, humidity, _ = struct.unpack("<IBBHHHHHHh", data)
         result = {
-            "pm1_0": values[0] / 10.0,
-            "pm2_5": values[1] / 10.0,
-            "pm10": values[2] / 10.0,
-            "temperature": values[3] / 10.0,
-            "humidity": values[4] / 10.0,
+            "pm1_0": pm1_0 / 10.0,
+            "pm2_5": pm2_5 / 10.0,
+            "pm10": pm10_0 / 10.0,
+            "temperature": temp / 10.0,
+            "humidity": humidity / 10.0,
         }
         _LOGGER.debug("Données analysées: %s", result)
         return result
