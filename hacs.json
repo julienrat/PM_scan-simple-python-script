@@ -1,7 +1,11 @@
 {
     "name": "PMScan Air Quality Monitor",
+    "content_in_root": false,
     "render_readme": true,
+    "country": ["FR"],
     "domains": ["sensor"],
     "homeassistant": "2023.8.0",
-    "iot_class": "local_polling"
+    "iot_class": "local_polling",
+    "zip_release": false,
+    "filename": "custom_components/pmscan/manifest.json"
 } 
