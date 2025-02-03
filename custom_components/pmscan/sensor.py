@@ -43,37 +43,56 @@ MAX_MEASUREMENT_INTERVAL = 3600
 # Délai maximum entre deux mesures avant de considérer les données comme périmées
 MAX_TIME_BETWEEN_UPDATES = timedelta(seconds=10)
 
-def parse_notification_data(data: bytearray) -> dict[str, float]:
-    """Parse notification data from PMScan device."""
+async def parse_notification_data(data: bytearray) -> dict[str, float]:
+    """Parse notification data from PMScan device according to specification.
+    
+    Format:
+    0x AA AA AA AA BB CC DD DD EE EE FF FF GG GG HH HH II II XX XX
+    uint32_t AA AA AA AA -> Timestamp
+    uint8_t BB -> NextPM State byte
+    uint8_t CC -> NextPM Command ID byte
+    uint16_t DD DD -> Particles count/ml (PM 10.0)
+    uint16_t EE EE -> Concentration PM 1.0 (μg/m3) (must be divide by 10)
+    uint16_t FF FF -> Concentration PM 2.5 (μg/m3) (must be divide by 10)
+    uint16_t GG GG -> Concentration PM 10.0 (μg/m3) (must be divide by 10)
+    uint16_t HH HH -> Temperature °C (must be divide by 10)
+    uint16_t II II -> Humidity % (must be divide by 10)
+    uint16_t XX XX -> FFU (for future use)
+    """
     try:
         _LOGGER.debug("Notification reçue: %s (longueur: %d)", data.hex(), len(data))
         
-        # Vérification de la taille des données
-        if len(data) < 20:
-            _LOGGER.warning("Données trop courtes (%d bytes), attente de plus de données", len(data))
+        # Vérification de la taille exacte des données (20 bytes requis)
+        if len(data) != 20:
+            _LOGGER.debug("Taille de données invalide (%d bytes), 20 bytes requis", len(data))
+            return {}
+        
+        # Décodage des données selon la spécification
+        try:
+            timestamp, state, cmd, particles, pm1_0, pm2_5, pm10_0, temp, humidity, _ = struct.unpack("<IBBHHHHHHh", data)
+            
+            # Vérification des valeurs invalides pendant le démarrage (0xFFFF)
+            if pm1_0 == 0xFFFF or pm2_5 == 0xFFFF or pm10_0 == 0xFFFF:
+                _LOGGER.debug("Données PM invalides pendant la période de démarrage (~15 sec)")
+                return {}
+            
+            # Conversion selon la spécification (division par 10)
+            result = {
+                "pm1_0": pm1_0 / 10.0,  # μg/m3
+                "pm2_5": pm2_5 / 10.0,  # μg/m3
+                "pm10": pm10_0 / 10.0,  # μg/m3
+                "temperature": temp / 10.0,  # °C
+                "humidity": humidity / 10.0,  # %
+            }
+            
+            _LOGGER.debug("Données décodées: timestamp=%d, state=0x%02x, cmd=0x%02x, particles=%d, valeurs=%s",
+                         timestamp, state, cmd, particles, result)
+            return result
+            
+        except struct.error as e:
+            _LOGGER.error("Erreur lors du décodage des données: %s", str(e))
             return {}
             
-        if len(data) > 20:
-            _LOGGER.warning("Données trop longues (%d bytes), utilisation des 20 premiers bytes", len(data))
-            data = data[:20]
-        
-        # Décodage des données
-        timestamp, state, cmd, particles, pm1_0, pm2_5, pm10_0, temp, humidity, _ = struct.unpack("<IBBHHHHHHh", data)
-        
-        # Vérification des valeurs invalides
-        if pm1_0 == 0xFFFF or pm2_5 == 0xFFFF or pm10_0 == 0xFFFF:
-            _LOGGER.debug("Données PM invalides pendant la période de démarrage")
-            return {}
-            
-        result = {
-            "pm1_0": pm1_0 / 10.0,
-            "pm2_5": pm2_5 / 10.0,
-            "pm10": pm10_0 / 10.0,
-            "temperature": temp / 10.0,
-            "humidity": humidity / 10.0,
-        }
-        _LOGGER.debug("Données analysées: %s", result)
-        return result
     except Exception as e:
         _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
         return {}
@@ -115,37 +134,52 @@ async def async_setup_entry(
         """Connect to device and subscribe to notifications."""
         retry_count = 0
         max_retries = 5
+        base_delay = 5  # Délai de base en secondes
+        
         while True:
             try:
+                # Attente entre les tentatives avec backoff exponentiel
+                if retry_count > 0:
+                    delay = min(300, base_delay * (2 ** (retry_count - 1)))  # Max 5 minutes
+                    _LOGGER.info("Tentative de reconnexion dans %d secondes (tentative %d/%d)", 
+                               delay, retry_count + 1, max_retries)
+                    await asyncio.sleep(delay)
+                
                 device = async_ble_device_from_address(hass, address)
                 if not device:
                     _LOGGER.error("Appareil non trouvé: %s", address)
-                    await asyncio.sleep(5)
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        _LOGGER.error("Nombre maximum de tentatives atteint, arrêt des tentatives")
+                        return
                     continue
 
-                # Attente entre les tentatives de connexion
-                if retry_count > 0:
-                    wait_time = min(30, 5 * retry_count)
-                async with BleakClient(device, timeout=20.0) as client:
+                async with BleakClient(device, timeout=30.0) as client:  # Augmentation du timeout
                     _LOGGER.info("Connexion établie avec le PMScan %s", address)
                     
                     # Découverte des caractéristiques
                     characteristics = await discover_characteristics(client)
                     if 'real_time_data' not in characteristics:
                         _LOGGER.error("Impossible de trouver la caractéristique Real-Time Data")
-                        await asyncio.sleep(5)
+                        retry_count += 1
                         continue
                     
-                    # Configuration optionnelle si les caractéristiques sont disponibles
+                    # Configuration des caractéristiques
                     if 'current_time' in characteristics:
-                        current_timestamp = int(datetime.now().timestamp())
-                        timestamp_bytes = current_timestamp.to_bytes(4, byteorder='little')
-                        await client.write_gatt_char(characteristics['current_time'], timestamp_bytes)
-                        _LOGGER.info("Timestamp envoyé: %d", current_timestamp)
+                        try:
+                            current_timestamp = int(datetime.now().timestamp())
+                            timestamp_bytes = current_timestamp.to_bytes(4, byteorder='little')
+                            await client.write_gatt_char(characteristics['current_time'], timestamp_bytes)
+                            _LOGGER.info("Timestamp envoyé: %d", current_timestamp)
+                        except Exception as e:
+                            _LOGGER.warning("Erreur lors de l'envoi du timestamp: %s", str(e))
                     
                     if 'measurement_interval' in characteristics:
-                        await client.write_gatt_char(characteristics['measurement_interval'], bytes([5]))
-                        _LOGGER.info("Intervalle de mesure configuré à 1 seconde")
+                        try:
+                            await client.write_gatt_char(characteristics['measurement_interval'], bytes([5]))
+                            _LOGGER.info("Intervalle de mesure configuré à 5 secondes")
+                        except Exception as e:
+                            _LOGGER.warning("Erreur lors de la configuration de l'intervalle: %s", str(e))
 
                     last_update = None
                     check_interval = asyncio.create_task(asyncio.sleep(0))
@@ -153,17 +187,25 @@ async def async_setup_entry(
                     def notification_handler(sender: int, data: bytearray) -> None:
                         """Handle notification from PMScan device."""
                         nonlocal last_update
-                        _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
-                        parsed_data = parse_notification_data(data)
-                        if parsed_data:
-                            last_update = dt_util.utcnow()
-                            for sensor in sensors:
-                                if sensor.value_type in parsed_data:
-                                    sensor.update_value(parsed_data[sensor.value_type])
+                        try:
+                            _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
+                            parsed_data = parse_notification_data(data)
+                            if parsed_data:
+                                last_update = dt_util.utcnow()
+                                for sensor in sensors:
+                                    if sensor.value_type in parsed_data:
+                                        sensor.update_value(parsed_data[sensor.value_type])
+                        except Exception as e:
+                            _LOGGER.error("Erreur dans le gestionnaire de notifications: %s", str(e))
 
-                    # Activation des notifications
-                    await client.start_notify(characteristics['real_time_data'], notification_handler)
-                    _LOGGER.info("Notifications activées pour %s", characteristics['real_time_data'])
+                    # Activation des notifications avec gestion des erreurs
+                    try:
+                        await client.start_notify(characteristics['real_time_data'], notification_handler)
+                        _LOGGER.info("Notifications activées pour %s", characteristics['real_time_data'])
+                    except Exception as e:
+                        _LOGGER.error("Erreur lors de l'activation des notifications: %s", str(e))
+                        retry_count += 1
+                        continue
 
                     # Boucle de vérification des mises à jour
                     while True:
@@ -180,25 +222,19 @@ async def async_setup_entry(
                             
                         except asyncio.CancelledError:
                             break
+                        except Exception as e:
+                            _LOGGER.error("Erreur dans la boucle de vérification: %s", str(e))
+                            break
 
-                    if keep_connection:
-                        # Si on maintient la connexion, on attend indéfiniment
-                        while True:
-                            await asyncio.sleep(1)
-                    else:
-                        # Sinon, on se déconnecte après chaque mise à jour
-                        await client.stop_notify(characteristics['real_time_data'])
-                        _LOGGER.info("Déconnexion du PMScan %s", address)
-                        return
+                    # Réinitialisation du compteur de tentatives après une connexion réussie
+                    retry_count = 0
 
             except Exception as e:
                 _LOGGER.error("Erreur lors de la connexion au PMScan: %s", str(e))
-                if not keep_connection:
-                    # Si on ne maintient pas la connexion, on attend plus longtemps entre les tentatives
-                    await asyncio.sleep(measurement_interval)
-                else:
-                    # Sinon, on réessaie plus rapidement
-                    await asyncio.sleep(5)
+                retry_count += 1
+                if retry_count >= max_retries:
+                    _LOGGER.error("Nombre maximum de tentatives atteint, arrêt des tentatives")
+                    return
 
     # Démarrer la connexion en arrière-plan
     hass.async_create_task(connect_and_subscribe())
