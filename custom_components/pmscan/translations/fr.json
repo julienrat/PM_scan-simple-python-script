@@ -3,14 +3,14 @@
         "step": {
             "user": {
                 "title": "PMScan",
-                "description": "Choisissez votre appareil PMScan",
+                "description": "Recherche automatique des appareils PMScan...",
                 "data": {
                     "address": "Appareil"
                 }
             }
         },
         "abort": {
-            "no_unconfigured_devices": "Aucun appareil PMScan non configuré trouvé.",
+            "not_supported": "Appareil non supporté",
             "already_configured": "L'appareil est déjà configuré"
         }
     },
