@@ -1,0 +1,14 @@
+mqtt:
+  broker: homeassistant.local  # Adresse de votre broker MQTT
+  port: 1883                   # Port MQTT (par défaut: 1883)
+  username: homeassistant      # Votre nom d'utilisateur MQTT
+  password: ""                 # Votre mot de passe MQTT
+  topic_prefix: homeassistant/sensor/pmscan
+
+device:
+  address: null  # Sera détecté automatiquement
+  name: PMScan
+  model: PMScan Air Quality Monitor
+  manufacturer: PMScan
+
+update_interval: 60  # Intervalle de mise à jour en secondes 
