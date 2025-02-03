@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any
 
+from bleak import BleakClient
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
     async_register_callback,
     BluetoothChange,
+    async_ble_device_from_address,
 )
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -31,6 +34,10 @@ _LOGGER = logging.getLogger(__name__)
 # Définition des caractéristiques Bluetooth
 PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
 REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
+MEASUREMENT_INTERVAL_UUID = "f3641902-00b0-4240-ba50-05ca45bf8abc"
+
+# Intervalle de mesure en secondes (1 mesure toutes les 5 secondes)
+DEFAULT_MEASUREMENT_INTERVAL = 5
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigType, async_add_entities: AddEntitiesCallback
@@ -58,6 +65,23 @@ async def async_setup_entry(
 
     async_add_entities(sensors)
 
+    # Configuration initiale de l'appareil
+    device = async_ble_device_from_address(hass, address)
+    if device:
+        try:
+            async with BleakClient(device) as client:
+                _LOGGER.debug("Connexion établie avec le PMScan")
+                
+                # Configuration de l'intervalle de mesure
+                interval_bytes = DEFAULT_MEASUREMENT_INTERVAL.to_bytes(2, byteorder='little')
+                await client.write_gatt_char(MEASUREMENT_INTERVAL_UUID, interval_bytes)
+                _LOGGER.debug("Intervalle de mesure configuré à %d secondes", DEFAULT_MEASUREMENT_INTERVAL)
+                
+                # Activation des notifications
+                await client.start_notify(REAL_TIME_DATA_UUID, lambda sender, data: handle_notification(data, sensors))
+        except Exception as e:
+            _LOGGER.error("Erreur lors de la configuration du PMScan: %s", str(e))
+
     @callback
     def _async_update_ble(
         service_info: BluetoothServiceInfoBleak, change: BluetoothChange
@@ -83,6 +107,12 @@ async def async_setup_entry(
             BluetoothChange.ADVERTISEMENT,
         )
     )
+
+def handle_notification(data: bytearray, sensors: list[PMScanSensor]) -> None:
+    """Handle notification from PMScan device."""
+    _LOGGER.debug("Notification reçue: %s", data.hex())
+    for sensor in sensors:
+        sensor.update_from_notification(data)
 
 class PMScanSensor(SensorEntity):
     """Representation of a PMScan sensor."""
@@ -129,6 +159,14 @@ class PMScanSensor(SensorEntity):
         except Exception as e:
             _LOGGER.error("Erreur lors de la mise à jour des données: %s", str(e))
 
+    def update_from_notification(self, data: bytearray) -> None:
+        """Update sensor state from notification data."""
+        try:
+            self._value = self._parse_notification_data(data)
+            self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.error("Erreur lors de l'analyse des données de notification: %s", str(e))
+
     def _parse_manufacturer_data(self, data: bytes) -> float | None:
         """Parse manufacturer data."""
         try:
@@ -136,6 +174,15 @@ class PMScanSensor(SensorEntity):
             return None
         except Exception as e:
             _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
+            return None
+
+    def _parse_notification_data(self, data: bytearray) -> float | None:
+        """Parse notification data."""
+        try:
+            # Implémentation spécifique dans les classes enfants
+            return None
+        except Exception as e:
+            _LOGGER.error("Erreur lors de l'analyse des données de notification: %s", str(e))
             return None
 
 class PMScanPM1Sensor(PMScanSensor):
