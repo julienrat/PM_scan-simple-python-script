@@ -96,94 +96,53 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle a flow initialized by the user."""
-        try:
-            _LOGGER.debug("Étape utilisateur - Input: %s", user_input)
-            
-            if user_input is not None:
-                address = user_input[CONF_ADDRESS]
-                discovery_info = self._discovered_devices[address]
-                _LOGGER.info("Configuration de PMScan: %s (%s)", discovery_info.name, address)
-                return self.async_create_entry(
-                    title=f"PMScan ({discovery_info.name})",
-                    data={CONF_ADDRESS: address},
+        _LOGGER.debug("Démarrage du flux de configuration PMScan")
+        
+        if user_input is not None:
+            address = user_input[CONF_ADDRESS]
+            discovery_info = self._discovered_devices[address]
+            return self.async_create_entry(
+                title=f"PMScan ({discovery_info.name})",
+                data={CONF_ADDRESS: address},
+            )
+
+        scanner = async_get_scanner(self.hass)
+        if not scanner:
+            return self.async_abort(reason="no_bluetooth")
+
+        discovered_devices = {}
+        for discovery_info in async_discovered_service_info(self.hass):
+            if discovery_info.name and "PMScan" in discovery_info.name:
+                discovered_devices[discovery_info.address] = discovery_info
+                _LOGGER.debug(
+                    "PMScan trouvé - Nom: %s, Adresse: %s",
+                    discovery_info.name,
+                    discovery_info.address,
                 )
 
-            scanner = async_get_scanner(self.hass)
-            if not scanner:
-                _LOGGER.error("Scanner Bluetooth non disponible!")
-                return self.async_abort(reason="no_bluetooth")
-                
-            _LOGGER.debug("État du scanner Bluetooth - Actif: %s", scanner.scanning)
-            
-            current_addresses = self._async_current_ids()
-            _LOGGER.debug("Adresses déjà configurées: %s", current_addresses)
-            
-            discovered_info = async_discovered_service_info(self.hass)
-            _LOGGER.debug("Nombre total d'appareils Bluetooth découverts: %d", len(discovered_info))
-            
-            for discovery_info in discovered_info:
-                try:
-                    _LOGGER.debug(
-                        "Analyse appareil - Nom: %s, Adresse: %s",
-                        discovery_info.name,
-                        discovery_info.address,
-                    )
-                    
-                    if (
-                        discovery_info.address not in current_addresses
-                        and self._is_pmscan_device(discovery_info)
-                    ):
-                        name = discovery_info.name or "PMScan"
-                        rssi = getattr(discovery_info, 'rssi', 0)
-                        _LOGGER.info(
-                            "Nouveau PMScan trouvé - Nom: %s, Adresse: %s",
-                            name,
-                            discovery_info.address,
-                        )
-                        self._discovered_devices[discovery_info.address] = discovery_info
-                except Exception as e:
-                    _LOGGER.error("Erreur lors de l'analyse de l'appareil: %s", str(e))
-                    continue
+        self._discovered_devices = discovered_devices
 
-            if not self._discovered_devices:
-                _LOGGER.warning("Aucun PMScan trouvé après la recherche")
-                return self.async_show_form(
-                    step_id="user",
-                    description_placeholders={
-                        "error_message": (
-                            "Aucun appareil PMScan trouvé. Vérifiez que : \n"
-                            "1. L'appareil est allumé\n"
-                            "2. Il est à portée du Bluetooth\n"
-                            "3. Le Bluetooth est activé sur votre système"
-                        )
-                    }
-                )
-
-            _LOGGER.info("PMScans trouvés: %s", list(self._discovered_devices.keys()))
-            
-            devices_dict = {}
-            for address, info in self._discovered_devices.items():
-                try:
-                    name = info.name or "PMScan"
-                    rssi = getattr(info, 'rssi', 0)
-                    devices_dict[address] = f"{name} ({address})"
-                    if rssi:
-                        devices_dict[address] += f" - Signal: {rssi}dBm"
-                except Exception as e:
-                    _LOGGER.error("Erreur lors de la création de l'entrée du menu: %s", str(e))
-                    devices_dict[address] = f"PMScan ({address})"
-            
+        if not discovered_devices:
             return self.async_show_form(
                 step_id="user",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_ADDRESS): vol.In(devices_dict)
-                    }
-                ),
+                description_placeholders={
+                    "error_message": "Aucun appareil PMScan trouvé. Vérifiez qu'il est allumé et à portée."
+                }
             )
-        except Exception as e:
-            _LOGGER.error("Erreur dans le flux de configuration: %s", str(e))
-            raise HomeAssistantError("Configuration error") from e
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ADDRESS): vol.In(
+                        {
+                            address: f"{info.name} ({address})"
+                            for address, info in discovered_devices.items()
+                        }
+                    )
+                }
+            ),
+        )
 
     @staticmethod
     def async_get_options_flow(
