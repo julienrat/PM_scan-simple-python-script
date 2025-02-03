@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import struct
 from typing import Any
 
 from bleak import BleakClient
@@ -42,6 +43,23 @@ DEFAULT_MEASUREMENT_INTERVAL = 5
 MIN_MEASUREMENT_INTERVAL = 1
 MAX_MEASUREMENT_INTERVAL = 3600
 
+def parse_notification_data(data: bytearray) -> dict[str, float]:
+    """Parse notification data from PMScan device."""
+    try:
+        # Format des données: PM1.0, PM2.5, PM10, Température, Humidité
+        # Chaque valeur est sur 2 octets, divisée par 10 pour avoir la valeur réelle
+        values = struct.unpack("<HHHHH", data[3:13])
+        return {
+            "pm1_0": values[0] / 10.0,
+            "pm2_5": values[1] / 10.0,
+            "pm10": values[2] / 10.0,
+            "temperature": values[3] / 10.0,
+            "humidity": values[4] / 10.0,
+        }
+    except Exception as e:
+        _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
+        return {}
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigType, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -73,6 +91,15 @@ async def async_setup_entry(
 
     async_add_entities(sensors)
 
+    def notification_handler(sender: int, data: bytearray) -> None:
+        """Handle notification from PMScan device."""
+        _LOGGER.debug("Notification reçue: %s", data.hex())
+        parsed_data = parse_notification_data(data)
+        if parsed_data:
+            for sensor in sensors:
+                if sensor.value_type in parsed_data:
+                    sensor.update_value(parsed_data[sensor.value_type])
+
     # Configuration initiale de l'appareil
     device = async_ble_device_from_address(hass, address)
     if device:
@@ -86,7 +113,7 @@ async def async_setup_entry(
                 _LOGGER.debug("Intervalle de mesure configuré à %d secondes", measurement_interval)
                 
                 # Activation des notifications
-                await client.start_notify(REAL_TIME_DATA_UUID, lambda sender, data: handle_notification(data, sensors))
+                await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
         except Exception as e:
             _LOGGER.error("Erreur lors de la configuration du PMScan: %s", str(e))
 
@@ -104,8 +131,9 @@ async def async_setup_entry(
             service_info.manufacturer_data,
         )
 
-        for sensor in sensors:
-            sensor.update_from_bluetooth(service_info)
+        if service_info.manufacturer_data:
+            for sensor in sensors:
+                sensor.update_from_bluetooth(service_info)
 
     entry.async_on_unload(
         async_register_callback(
@@ -115,12 +143,6 @@ async def async_setup_entry(
             BluetoothChange.ADVERTISEMENT,
         )
     )
-
-def handle_notification(data: bytearray, sensors: list[PMScanSensor]) -> None:
-    """Handle notification from PMScan device."""
-    _LOGGER.debug("Notification reçue: %s", data.hex())
-    for sensor in sensors:
-        sensor.update_from_notification(data)
 
 class PMScanSensor(SensorEntity):
     """Representation of a PMScan sensor."""
@@ -132,6 +154,7 @@ class PMScanSensor(SensorEntity):
         self._attr_native_unit_of_measurement = None
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._value = None
+        self.value_type = None
         _LOGGER.debug(
             "Initialisation du capteur PMScan - Nom: %s, Adresse: %s",
             discovery_info.name,
@@ -148,6 +171,11 @@ class PMScanSensor(SensorEntity):
             "model": "PMScan",
         }
 
+    def update_value(self, value: float) -> None:
+        """Update sensor value."""
+        self._value = value
+        self.async_write_ha_state()
+
     def update_from_bluetooth(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update sensor state from Bluetooth data."""
         if not service_info.manufacturer_data:
@@ -161,37 +189,12 @@ class PMScanSensor(SensorEntity):
                     company_id,
                     data.hex(),
                 )
-                self._value = self._parse_manufacturer_data(data)
-                self.async_write_ha_state()
+                parsed_data = parse_notification_data(data)
+                if parsed_data and self.value_type in parsed_data:
+                    self.update_value(parsed_data[self.value_type])
                 break
         except Exception as e:
             _LOGGER.error("Erreur lors de la mise à jour des données: %s", str(e))
-
-    def update_from_notification(self, data: bytearray) -> None:
-        """Update sensor state from notification data."""
-        try:
-            self._value = self._parse_notification_data(data)
-            self.async_write_ha_state()
-        except Exception as e:
-            _LOGGER.error("Erreur lors de l'analyse des données de notification: %s", str(e))
-
-    def _parse_manufacturer_data(self, data: bytes) -> float | None:
-        """Parse manufacturer data."""
-        try:
-            # Implémentation spécifique dans les classes enfants
-            return None
-        except Exception as e:
-            _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
-            return None
-
-    def _parse_notification_data(self, data: bytearray) -> float | None:
-        """Parse notification data."""
-        try:
-            # Implémentation spécifique dans les classes enfants
-            return None
-        except Exception as e:
-            _LOGGER.error("Erreur lors de l'analyse des données de notification: %s", str(e))
-            return None
 
 class PMScanPM1Sensor(PMScanSensor):
     """Representation of a PMScan PM1.0 sensor."""
@@ -203,17 +206,12 @@ class PMScanPM1Sensor(PMScanSensor):
         self._attr_unique_id = f"{discovery_info.address}_pm1_0"
         self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
         self._attr_device_class = SensorDeviceClass.PM1
+        self.value_type = "pm1_0"
 
     @property
     def native_value(self) -> float | None:
         """Return the PM1.0 value."""
         return self._value
-
-    def _parse_manufacturer_data(self, data: bytes) -> float | None:
-        """Parse PM1.0 data."""
-        if len(data) >= 2:
-            return int.from_bytes(data[0:2], byteorder='little') / 10.0
-        return None
 
 class PMScanPM25Sensor(PMScanSensor):
     """Representation of a PMScan PM2.5 sensor."""
@@ -225,17 +223,12 @@ class PMScanPM25Sensor(PMScanSensor):
         self._attr_unique_id = f"{discovery_info.address}_pm2_5"
         self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
         self._attr_device_class = SensorDeviceClass.PM25
+        self.value_type = "pm2_5"
 
     @property
     def native_value(self) -> float | None:
         """Return the PM2.5 value."""
         return self._value
-
-    def _parse_manufacturer_data(self, data: bytes) -> float | None:
-        """Parse PM2.5 data."""
-        if len(data) >= 4:
-            return int.from_bytes(data[2:4], byteorder='little') / 10.0
-        return None
 
 class PMScanPM10Sensor(PMScanSensor):
     """Representation of a PMScan PM10 sensor."""
@@ -247,17 +240,12 @@ class PMScanPM10Sensor(PMScanSensor):
         self._attr_unique_id = f"{discovery_info.address}_pm10_0"
         self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
         self._attr_device_class = SensorDeviceClass.PM10
+        self.value_type = "pm10"
 
     @property
     def native_value(self) -> float | None:
         """Return the PM10 value."""
         return self._value
-
-    def _parse_manufacturer_data(self, data: bytes) -> float | None:
-        """Parse PM10 data."""
-        if len(data) >= 6:
-            return int.from_bytes(data[4:6], byteorder='little') / 10.0
-        return None
 
 class PMScanTemperatureSensor(PMScanSensor):
     """Representation of a PMScan temperature sensor."""
@@ -269,17 +257,12 @@ class PMScanTemperatureSensor(PMScanSensor):
         self._attr_unique_id = f"{discovery_info.address}_temperature"
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self.value_type = "temperature"
 
     @property
     def native_value(self) -> float | None:
         """Return the temperature value."""
         return self._value
-
-    def _parse_manufacturer_data(self, data: bytes) -> float | None:
-        """Parse temperature data."""
-        if len(data) >= 8:
-            return int.from_bytes(data[6:8], byteorder='little') / 10.0
-        return None
 
 class PMScanHumiditySensor(PMScanSensor):
     """Representation of a PMScan humidity sensor."""
@@ -291,14 +274,9 @@ class PMScanHumiditySensor(PMScanSensor):
         self._attr_unique_id = f"{discovery_info.address}_humidity"
         self._attr_native_unit_of_measurement = PERCENTAGE
         self._attr_device_class = SensorDeviceClass.HUMIDITY
+        self.value_type = "humidity"
 
     @property
     def native_value(self) -> float | None:
         """Return the humidity value."""
-        return self._value
-
-    def _parse_manufacturer_data(self, data: bytes) -> float | None:
-        """Parse humidity data."""
-        if len(data) >= 10:
-            return int.from_bytes(data[8:10], byteorder='little') / 10.0
-        return None 
+        return self._value 
