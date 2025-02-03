@@ -46,16 +46,19 @@ MAX_MEASUREMENT_INTERVAL = 3600
 def parse_notification_data(data: bytearray) -> dict[str, float]:
     """Parse notification data from PMScan device."""
     try:
+        _LOGGER.debug("Analyse des données brutes: %s", data.hex())
         # Format des données: PM1.0, PM2.5, PM10, Température, Humidité
         # Chaque valeur est sur 2 octets, divisée par 10 pour avoir la valeur réelle
         values = struct.unpack("<HHHHH", data[3:13])
-        return {
+        result = {
             "pm1_0": values[0] / 10.0,
             "pm2_5": values[1] / 10.0,
             "pm10": values[2] / 10.0,
             "temperature": values[3] / 10.0,
             "humidity": values[4] / 10.0,
         }
+        _LOGGER.debug("Données analysées: %s", result)
+        return result
     except Exception as e:
         _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
         return {}
@@ -91,31 +94,46 @@ async def async_setup_entry(
 
     async_add_entities(sensors)
 
-    def notification_handler(sender: int, data: bytearray) -> None:
-        """Handle notification from PMScan device."""
-        _LOGGER.debug("Notification reçue: %s", data.hex())
-        parsed_data = parse_notification_data(data)
-        if parsed_data:
-            for sensor in sensors:
-                if sensor.value_type in parsed_data:
-                    sensor.update_value(parsed_data[sensor.value_type])
+    async def connect_and_subscribe():
+        """Connect to device and subscribe to notifications."""
+        device = async_ble_device_from_address(hass, address)
+        if not device:
+            _LOGGER.error("Appareil non trouvé: %s", address)
+            return
 
-    # Configuration initiale de l'appareil
-    device = async_ble_device_from_address(hass, address)
-    if device:
+        def notification_handler(sender: int, data: bytearray) -> None:
+            """Handle notification from PMScan device."""
+            _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
+            parsed_data = parse_notification_data(data)
+            if parsed_data:
+                for sensor in sensors:
+                    if sensor.value_type in parsed_data:
+                        sensor.update_value(parsed_data[sensor.value_type])
+
         try:
-            async with BleakClient(device) as client:
-                _LOGGER.debug("Connexion établie avec le PMScan")
+            async with BleakClient(device, timeout=20.0) as client:
+                _LOGGER.info("Connexion établie avec le PMScan %s", address)
                 
                 # Configuration de l'intervalle de mesure
                 interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
                 await client.write_gatt_char(MEASUREMENT_INTERVAL_UUID, interval_bytes)
-                _LOGGER.debug("Intervalle de mesure configuré à %d secondes", measurement_interval)
+                _LOGGER.info("Intervalle de mesure configuré à %d secondes", measurement_interval)
                 
                 # Activation des notifications
                 await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
+                _LOGGER.info("Notifications activées pour %s", REAL_TIME_DATA_UUID)
+                
+                # Maintenir la connexion active
+                while True:
+                    await asyncio.sleep(1)
+                    
         except Exception as e:
-            _LOGGER.error("Erreur lors de la configuration du PMScan: %s", str(e))
+            _LOGGER.error("Erreur lors de la connexion au PMScan: %s", str(e))
+            await asyncio.sleep(5)  # Attendre avant de réessayer
+            hass.async_create_task(connect_and_subscribe())
+
+    # Démarrer la connexion en arrière-plan
+    hass.async_create_task(connect_and_subscribe())
 
     @callback
     def _async_update_ble(
