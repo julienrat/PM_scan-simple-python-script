@@ -13,6 +13,8 @@ PMScan est un capteur de qualité de l'air connecté qui mesure les particules f
 - Connexion directe via Web Bluetooth
 - Graphiques en temps réel
 - Fonctionne dans le navigateur sans installation
+- Compatible Chrome, Chromium et dérivés
+- ⚠️ Nécessite l'activation du flag `chrome://flags/#enable-web-bluetooth`
 
 ### 3. 🏠 [Intégration Home Assistant](docs/HOMEASSISTANT.md)
 - Intégration native dans Home Assistant
@@ -92,4 +94,5 @@ Ce projet est sous licence libre.
 - 📧 [Contacter le développeur](https://github.com/julienrat)
 
 ## 🙏 Remerciements
-Merci à tous les contributeurs qui ont participé à ce projet !
+- L'équipe de [Tera-Sensor](https://tera-sensor.com) et plus particulièrement Vincent pour son aide précieuse dans le développement
+- Tous les contributeurs qui ont participé à ce projet !
