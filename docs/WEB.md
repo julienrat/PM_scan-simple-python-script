@@ -1,149 +1,127 @@
-# 🌐 PMScan - Interface Web
+# 🌟 PMScan Viewer
 
-## 📝 Description
-L'interface web PMScan permet de visualiser en temps réel les données de votre capteur PMScan directement dans votre navigateur. Elle utilise la technologie Web Bluetooth pour une connexion sans installation et propose une interface moderne et intuitive.
+## 📱 Interface Web
 
-## ✨ Fonctionnalités
-- 📊 Graphiques en temps réel
-- 🎨 Interface responsive et moderne
-- 🔄 Mise à jour automatique des données
-- 🌈 Indicateur visuel de qualité de l'air
-- 📱 Compatible mobile et desktop
-- 🔌 Connexion directe via Web Bluetooth
+Cette interface web permet de visualiser en temps réel les données de votre capteur PMScan via Bluetooth Low Energy (BLE).
 
-## 💻 Prérequis
-- Un navigateur compatible Web Bluetooth :
-  - ✅ Chrome (Desktop & Android)
-  - ✅ Edge
-  - ✅ Opera
-  - ❌ Firefox (Web Bluetooth non supporté)
-  - ❌ Safari (Web Bluetooth non supporté)
-- Un capteur PMScan
-- Une connexion Bluetooth
+### Fonctionnalités
 
-## 🚀 Utilisation
+- Connexion automatique aux capteurs PMScan
+- Affichage en temps réel des mesures
+- Graphique dynamique des concentrations
+- Indicateur de qualité de l'air avec code couleur
+- Monitoring de la batterie et de l'état de charge
 
-### En ligne
-1. Accédez à [https://julienrat.github.io/PM_scan-simple-python-script/](https://julienrat.github.io/PM_scan-simple-python-script/)
-2. Cliquez sur "Connecter PMScan"
-3. Sélectionnez votre appareil
-4. Les données s'afficheront automatiquement
+### Installation
 
-### En local
 1. Clonez le dépôt :
 ```bash
 git clone https://github.com/julienrat/PM_scan-simple-python-script.git
+cd PM_scan-simple-python-script
 ```
 
-2. Ouvrez `index.html` dans un navigateur compatible
-   - Note : Pour le développement local, utilisez un serveur HTTPS
-   - Exemple avec Python :
-     ```bash
-     python -m http.server 8000
-     ```
+2. Ouvrez `index.html` dans votre navigateur
 
-## 📊 Interface utilisateur
+### Interface utilisateur
 
-### Panneau principal
-- Valeurs en temps réel :
-  - PM1.0, PM2.5, PM10.0 (μg/m³)
-  - Température (°C)
-  - Humidité (%)
-- Indicateur de qualité de l'air
-- État de la connexion
+#### 🔌 État de connexion
+- Bouton de connexion/déconnexion
+- Statut de la connexion
+- Nom et adresse du capteur
 
-### Graphiques
-- Historique des particules :
-  - PM1.0 (bleu)
-  - PM2.5 (orange)
-  - PM10.0 (rouge)
-- Échelle automatique
-- 50 derniers points de mesure
+#### 🔋 État de la batterie
+- Niveau de charge avec barre de progression
+- État de charge :
+  - 🔴 Non branché
+  - 🟡 Pré-charge
+  - 🔵 En charge
+  - 🟢 Chargé
 
-### Indicateurs
-- 🟢 Excellente qualité (PM10 < 10 μg/m³)
-- 🟡 Bonne qualité (PM10 10-30 μg/m³)
-- 🟠 Qualité moyenne (PM10 30-50 μg/m³)
-- 🔴 Mauvaise qualité (PM10 50-80 μg/m³)
-- 🟣 Très mauvaise qualité (PM10 > 80 μg/m³)
+#### 📊 Mesures en temps réel
+- PM1.0 (μg/m³)
+- PM2.5 (μg/m³)
+- PM10.0 (μg/m³)
+- Température PCB (°C)
+- Humidité interne (%)
+- Nombre de particules par ml
 
-## 🔧 Personnalisation
+#### 📈 Graphique
+- Affichage des 3 mesures PM
+- Mise à jour en temps réel
+- Historique sur 50 points
+- Légende colorée
 
-### Styles CSS
-Le fichier `style.css` permet de personnaliser :
-```css
-/* Couleurs des graphiques */
---chart-pm1: rgb(75, 192, 192);
---chart-pm25: rgb(255, 159, 64);
---chart-pm10: rgb(255, 99, 132);
+#### 🌈 Qualité de l'air
+Indicateur visuel basé sur PM10 :
+- 💚 EXCELLENTE (< 10 μg/m³)
+- 💛 BONNE (< 30 μg/m³)
+- 🟧 MOYENNE (< 50 μg/m³)
+- ❤️ MAUVAISE (< 80 μg/m³)
+- 💜 TRÈS MAUVAISE (≥ 80 μg/m³)
 
-/* Indicateurs de qualité */
-.quality-level.excellent { background-color: #4CAF50; }
-.quality-level.good { background-color: #FFEB3B; }
-.quality-level.moderate { background-color: #FF9800; }
-.quality-level.poor { background-color: #F44336; }
-.quality-level.very-poor { background-color: #9C27B0; }
-```
+### Compatibilité
 
-### Configuration des graphiques
-Dans `script.js` :
-```javascript
-const maxDataPoints = 50;  // Nombre de points affichés
-const updateInterval = 1000;  // Intervalle de mise à jour (ms)
+- Chrome 56+ sur Android/Desktop
+- Edge 79+ sur Windows
+- Safari 14.1+ sur macOS/iOS
 
-// Options du graphique
-const chartOptions = {
-    responsive: true,
-    animation: { duration: 0 },
-    scales: {
-        y: { beginAtZero: true }
-    }
-};
-```
+### Configuration requise
 
-## 🐛 Dépannage
+- Navigateur compatible Web Bluetooth
+- Appareil avec Bluetooth Low Energy
+- PMScan avec firmware récent
 
-### Problèmes courants
-1. Connexion impossible :
-   - Vérifiez la compatibilité du navigateur
-   - Activez le Bluetooth
-   - Utilisez HTTPS en local
+### Dépannage
 
-2. Graphiques figés :
+1. **Bluetooth non détecté**
+   - Vérifiez que le navigateur est compatible
+   - Activez le Bluetooth sur votre appareil
+   - Autorisez l'accès au Bluetooth
+
+2. **Connexion impossible**
+   - Vérifiez que le PMScan est allumé
+   - Rapprochez-vous du capteur
+   - Redémarrez le navigateur
+
+3. **Données manquantes**
+   - Attendez l'initialisation du capteur
+   - Vérifiez la connexion Bluetooth
    - Rafraîchissez la page
-   - Vérifiez la console pour les erreurs
-   - Reconnectez le PMScan
 
-3. Données manquantes :
-   - Vérifiez la portée Bluetooth
-   - Assurez-vous que le PMScan est allumé
-   - Vérifiez la connexion dans les paramètres Bluetooth
+### Notes techniques
 
-### Console de débogage
-Pour accéder aux logs :
-1. Ouvrez les outils de développement (F12)
-2. Sélectionnez l'onglet "Console"
-3. Filtrez par "PMScan" pour voir les messages spécifiques
+Les données sont reçues via BLE avec les caractéristiques suivantes :
 
-## 🔒 Sécurité
-- L'interface utilise uniquement HTTPS
-- Aucune donnée n'est stockée en ligne
-- Les données restent locales au navigateur
-- La connexion Bluetooth est sécurisée
+- Service : `f3641900-00b0-4240-ba50-05ca45bf8abc`
+- Données temps réel : `f3641901-00b0-4240-ba50-05ca45bf8abc`
+- Batterie : `f3641904-00b0-4240-ba50-05ca45bf8abc`
+- État de charge : `f3641905-00b0-4240-ba50-05ca45bf8abc`
 
-## 📱 Version mobile
-- Interface responsive
-- Optimisée pour les écrans tactiles
-- Gestion des orientations portrait/paysage
-- Boutons adaptés au tactile
+### Personnalisation
 
-## 🎨 Thèmes
-L'interface supporte les thèmes clair et sombre :
-- Détection automatique du thème système
-- Variables CSS pour une personnalisation facile
-- Transitions fluides entre les thèmes
+Le style peut être modifié via CSS :
+```css
+/* Exemple de personnalisation */
+.quality-level {
+    padding: 10px;
+    border-radius: 5px;
+    font-weight: bold;
+}
 
-## 📚 Ressources
-- [Web Bluetooth API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API)
-- [Chart.js](https://www.chartjs.org/)
-- [Bootstrap](https://getbootstrap.com/) 
+.excellent { background-color: #4CAF50; }
+.good { background-color: #FFC107; }
+.moderate { background-color: #FF9800; }
+.poor { background-color: #F44336; }
+.very-poor { background-color: #9C27B0; }
+```
+
+### Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à :
+- Signaler des bugs
+- Proposer des améliorations
+- Soumettre des pull requests
+
+### Licence
+
+Ce projet est sous licence MIT. 
