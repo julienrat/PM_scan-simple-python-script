@@ -46,25 +46,21 @@ MAX_TIME_BETWEEN_UPDATES = timedelta(seconds=10)
 def parse_notification_data(data: bytearray) -> dict[str, float]:
     """Parse notification data from PMScan device."""
     try:
-        _LOGGER.debug("Notification reçue: %s", data.hex())
-        _LOGGER.debug("Analyse des données brutes: %s", data.hex())
+        _LOGGER.debug("Notification reçue: %s (longueur: %d)", data.hex(), len(data))
         
-        # Format des données selon la spécification:
-        # 0x AA AA AA AA BB CC DD DD EE EE FF FF GG GG HH HH II II XX XX
-        # AA AA AA AA -> Timestamp (uint32)
-        # BB -> NextPM State byte
-        # CC -> NextPM Command ID byte
-        # DD DD -> Particles count/ml (PM 10.0)
-        # EE EE -> PM 1.0 (μg/m3) (doit être divisé par 10)
-        # FF FF -> PM 2.5 (μg/m3) (doit être divisé par 10)
-        # GG GG -> PM 10.0 (μg/m3) (doit être divisé par 10)
-        # HH HH -> Temperature (doit être divisé par 10)
-        # II II -> Humidity (doit être divisé par 10)
-        # XX XX -> Pour usage futur
+        # Vérification de la taille des données
+        if len(data) < 20:
+            _LOGGER.warning("Données trop courtes (%d bytes), attente de plus de données", len(data))
+            return {}
+            
+        if len(data) > 20:
+            _LOGGER.warning("Données trop longues (%d bytes), utilisation des 20 premiers bytes", len(data))
+            data = data[:20]
         
+        # Décodage des données
         timestamp, state, cmd, particles, pm1_0, pm2_5, pm10_0, temp, humidity, _ = struct.unpack("<IBBHHHHHHh", data)
         
-        # Vérifier si les valeurs PM sont valides (pas 0xFFFF qui indique une période de démarrage)
+        # Vérification des valeurs invalides
         if pm1_0 == 0xFFFF or pm2_5 == 0xFFFF or pm10_0 == 0xFFFF:
             _LOGGER.debug("Données PM invalides pendant la période de démarrage")
             return {}
@@ -117,6 +113,8 @@ async def async_setup_entry(
 
     async def connect_and_subscribe():
         """Connect to device and subscribe to notifications."""
+        retry_count = 0
+        max_retries = 5
         while True:
             try:
                 device = async_ble_device_from_address(hass, address)
@@ -125,6 +123,9 @@ async def async_setup_entry(
                     await asyncio.sleep(5)
                     continue
 
+                # Attente entre les tentatives de connexion
+                if retry_count > 0:
+                    wait_time = min(30, 5 * retry_count)
                 async with BleakClient(device, timeout=20.0) as client:
                     _LOGGER.info("Connexion établie avec le PMScan %s", address)
                     
