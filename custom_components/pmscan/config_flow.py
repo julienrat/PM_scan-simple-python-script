@@ -16,8 +16,14 @@ from homeassistant.components.bluetooth import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import callback
 
 from . import DOMAIN
+from .sensor import (
+    DEFAULT_MEASUREMENT_INTERVAL,
+    MIN_MEASUREMENT_INTERVAL,
+    MAX_MEASUREMENT_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -177,35 +183,39 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return PMScanOptionsFlow(config_entry)
+        return OptionsFlowHandler(config_entry)
 
-class PMScanOptionsFlow(config_entries.OptionsFlow):
-    """Handle options."""
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for PMScan integration."""
 
-    def __init__(self, config_entry):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.config_entry = config_entry
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        options = {
+            vol.Optional(
+                "measurement_interval",
+                default=self.config_entry.options.get(
+                    "measurement_interval", DEFAULT_MEASUREMENT_INTERVAL
+                ),
+            ): vol.All(
+                vol.Coerce(int),
+                vol.Range(min=MIN_MEASUREMENT_INTERVAL, max=MAX_MEASUREMENT_INTERVAL)
+            ),
+        }
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        "measurement_interval",
-                        default=self.config_entry.options.get(
-                            "measurement_interval", DEFAULT_MEASUREMENT_INTERVAL
-                        ),
-                    ): vol.All(
-                        vol.Coerce(int),
-                        vol.Range(min=MIN_MEASUREMENT_INTERVAL, max=MAX_MEASUREMENT_INTERVAL)
-                    ),
-                }
-            ),
+            data_schema=vol.Schema(options)
         ) 
