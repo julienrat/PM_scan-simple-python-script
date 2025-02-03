@@ -36,11 +36,18 @@ from . import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 # Définition des caractéristiques Bluetooth
-PMSCAN_SERVICE_UUID = "f3641900-b000-4042-ba50-05ca45bf8ab"
-REAL_TIME_DATA_UUID = "f3641901-b000-4042-ba50-05ca45bf8ab"
-CURRENT_TIME_UUID = "f3641906-b000-4042-ba50-05ca45bf8ab"
-BATTERY_LEVEL_UUID = "f3641904-b000-4042-ba50-05ca45bf8ab"
-BATTERY_CHARGING_UUID = "f3641905-b000-4042-ba50-05ca45bf8ab"
+PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
+REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
+MEMORY_DATA_UUID = "f3641902-00b0-4240-ba50-05ca45bf8abc"
+TEMP_HUMID_ALERT_UUID = "f3641903-00b0-4240-ba50-05ca45bf8abc"
+BATTERY_LEVEL_UUID = "f3641904-00b0-4240-ba50-05ca45bf8abc"
+BATTERY_CHARGING_UUID = "f3641905-00b0-4240-ba50-05ca45bf8abc"
+CURRENT_TIME_UUID = "f3641906-00b0-4240-ba50-05ca45bf8abc"
+ACQUISITION_INTERVAL_UUID = "f3641907-00b0-4240-ba50-05ca45bf8abc"
+POWER_MODE_UUID = "f3641908-00b0-4240-ba50-05ca45bf8abc"
+TEMP_HUMID_THRESHOLD_UUID = "f3641909-00b0-4240-ba50-05ca45bf8abc"
+DISPLAY_SETTINGS_UUID = "f364190a-00b0-4240-ba50-05ca45bf8abc"
+BATTERY_HEARTBEAT_UUID = "f364190b-00b0-4240-ba50-05ca45bf8abc"
 
 # Constantes pour l'état de charge de la batterie
 BATTERY_NOT_CHARGING = 0
@@ -56,6 +63,19 @@ MAX_MEASUREMENT_INTERVAL = 3600
 
 # Délai maximum entre deux mesures avant de considérer les données comme périmées
 MAX_TIME_BETWEEN_UPDATES = timedelta(seconds=10)
+
+# Constantes pour la gestion des connexions
+MAX_CONNECTION_ATTEMPTS = 3
+CONNECTION_TIMEOUT = 30.0
+RECONNECTION_DELAY = 10
+
+# Log des UUIDs au démarrage
+_LOGGER.debug("UUIDs Bluetooth configurés:")
+_LOGGER.debug("Service: %s", PMSCAN_SERVICE_UUID)
+_LOGGER.debug("Données temps réel: %s", REAL_TIME_DATA_UUID)
+_LOGGER.debug("Horloge: %s", CURRENT_TIME_UUID)
+_LOGGER.debug("Niveau batterie: %s", BATTERY_LEVEL_UUID)
+_LOGGER.debug("État charge: %s", BATTERY_CHARGING_UUID)
 
 def parse_notification_data(data: bytearray) -> dict[str, Any]:
     """Parse notification data from PMScan device."""
@@ -118,6 +138,10 @@ async def async_setup_entry(
     _LOGGER.debug("Options configurées - Intervalle: %d secondes, Connexion permanente: %s", 
                  measurement_interval, keep_connection)
 
+    # Variable pour suivre l'état de la connexion
+    connection_active = False
+    connection_attempts = 0
+
     sensors = []
     for discovery_info in async_discovered_service_info(hass):
         if discovery_info.address == address:
@@ -144,16 +168,35 @@ async def async_setup_entry(
 
     async def connect_and_subscribe():
         """Connect to device and subscribe to notifications."""
+        nonlocal connection_active, connection_attempts
+        
         while True:
+            if connection_active:
+                _LOGGER.debug("Une connexion est déjà active, attente...")
+                await asyncio.sleep(RECONNECTION_DELAY)
+                continue
+
+            if connection_attempts >= MAX_CONNECTION_ATTEMPTS:
+                _LOGGER.error("Nombre maximum de tentatives de connexion atteint (%d)", MAX_CONNECTION_ATTEMPTS)
+                await asyncio.sleep(60)  # Attente plus longue avant de réessayer
+                connection_attempts = 0
+                continue
+
             try:
+                connection_active = True
+                connection_attempts += 1
+                
                 device = async_ble_device_from_address(hass, address)
                 if not device:
                     _LOGGER.error("Appareil non trouvé: %s", address)
-                    await asyncio.sleep(5)
+                    connection_active = False
+                    await asyncio.sleep(RECONNECTION_DELAY)
                     continue
 
-                async with BleakClient(device, timeout=20.0) as client:
-                    _LOGGER.info("Connexion établie avec le PMScan %s", address)
+                async with BleakClient(device, timeout=CONNECTION_TIMEOUT) as client:
+                    _LOGGER.info("Connexion établie avec le PMScan %s (tentative %d/%d)", 
+                               address, connection_attempts, MAX_CONNECTION_ATTEMPTS)
+                    connection_attempts = 0  # Réinitialisation du compteur après une connexion réussie
                     
                     # Configuration de l'intervalle de mesure
                     interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
@@ -228,8 +271,10 @@ async def async_setup_entry(
                             break
 
             except Exception as e:
-                _LOGGER.error("Erreur de connexion: %s", str(e))
-                await asyncio.sleep(5)  # Attente avant nouvelle tentative
+                _LOGGER.error("Erreur de connexion (tentative %d/%d): %s", 
+                            connection_attempts, MAX_CONNECTION_ATTEMPTS, str(e))
+                connection_active = False
+                await asyncio.sleep(RECONNECTION_DELAY)
 
     # Démarrer la connexion en arrière-plan
     hass.async_create_task(connect_and_subscribe())

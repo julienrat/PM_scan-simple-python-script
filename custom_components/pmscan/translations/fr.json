@@ -5,15 +5,20 @@
                 "title": "PMScan",
                 "description": "Recherche des appareils PMScan... {error_message}",
                 "data": {
-                    "address": "Sélectionnez votre appareil PMScan"
+                    "address": "Adresse Bluetooth",
+                    "name": "Nom"
                 }
             }
         },
+        "error": {
+            "cannot_connect": "Impossible de se connecter à l'appareil",
+            "no_devices_found": "Aucun appareil PMScan trouvé",
+            "already_configured": "Cet appareil est déjà configuré"
+        },
         "abort": {
-            "not_supported": "Cet appareil n'est pas un PMScan",
-            "already_configured": "Cet appareil PMScan est déjà configuré",
-            "no_devices_found": "Aucun appareil PMScan trouvé sur le réseau",
-            "no_bluetooth": "Le Bluetooth n'est pas disponible sur votre système"
+            "already_configured": "Cet appareil est déjà configuré",
+            "cannot_connect": "Impossible de se connecter à l'appareil",
+            "no_devices_found": "Aucun appareil PMScan trouvé"
         }
     },
     "entity": {
@@ -32,6 +37,16 @@
             },
             "humidity": {
                 "name": "Humidité"
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "measurement_interval": "Intervalle de mesure (secondes)",
+                    "keep_connection": "Maintenir la connexion active"
+                }
             }
         }
     }
