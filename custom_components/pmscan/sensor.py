@@ -74,10 +74,12 @@ async def async_setup_entry(
     address = entry.data["address"]
     _LOGGER.debug("Configuration des capteurs PMScan pour l'adresse %s", address)
 
-    # Récupération de l'intervalle de mesure depuis les options
+    # Récupération des options
     measurement_interval = entry.options.get("measurement_interval", DEFAULT_MEASUREMENT_INTERVAL)
     measurement_interval = max(MIN_MEASUREMENT_INTERVAL, min(measurement_interval, MAX_MEASUREMENT_INTERVAL))
-    _LOGGER.debug("Intervalle de mesure configuré: %d secondes", measurement_interval)
+    keep_connection = entry.options.get("keep_connection", True)
+    _LOGGER.debug("Options configurées - Intervalle: %d secondes, Connexion permanente: %s", 
+                 measurement_interval, keep_connection)
 
     sensors = []
     for discovery_info in async_discovered_service_info(hass):
@@ -150,9 +152,24 @@ async def async_setup_entry(
                         except asyncio.CancelledError:
                             break
 
+                    if keep_connection:
+                        # Si on maintient la connexion, on attend indéfiniment
+                        while True:
+                            await asyncio.sleep(1)
+                    else:
+                        # Sinon, on se déconnecte après chaque mise à jour
+                        await client.stop_notify(REAL_TIME_DATA_UUID)
+                        _LOGGER.info("Déconnexion du PMScan %s", address)
+                        return
+
             except Exception as e:
                 _LOGGER.error("Erreur lors de la connexion au PMScan: %s", str(e))
-                await asyncio.sleep(5)
+                if not keep_connection:
+                    # Si on ne maintient pas la connexion, on attend plus longtemps entre les tentatives
+                    await asyncio.sleep(measurement_interval)
+                else:
+                    # Sinon, on réessaie plus rapidement
+                    await asyncio.sleep(5)
 
     # Démarrer la connexion en arrière-plan
     hass.async_create_task(connect_and_subscribe())
