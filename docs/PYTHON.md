@@ -152,4 +152,147 @@ logging.basicConfig(level=logging.DEBUG)
 ## 📚 Ressources
 - [Documentation Bleak](https://bleak.readthedocs.io/)
 - [Guide asyncio](https://docs.python.org/3/library/asyncio.html)
-- [Documentation struct](https://docs.python.org/3/library/struct.html) 
+- [Documentation struct](https://docs.python.org/3/library/struct.html)
+
+# Documentation Python du PMScan
+
+Ce document décrit l'utilisation du script Python pour communiquer avec le capteur PMScan via Bluetooth Low Energy (BLE).
+
+## Prérequis
+
+- Python 3.7 ou supérieur
+- Package `bleak` pour la communication BLE
+- Un adaptateur Bluetooth compatible
+
+Installation des dépendances :
+```bash
+pip install -r requirements.txt
+```
+
+## Utilisation du script
+
+Le script `pmscan_reader.py` permet de :
+- Scanner et se connecter à un capteur PMScan
+- Lire les données en temps réel (PM1.0, PM2.5, PM10.0)
+- Afficher la température et l'humidité du capteur
+- Monitorer l'état de la batterie et de la charge
+- Visualiser la qualité de l'air avec un code couleur
+
+### Lancement du script
+
+```bash
+python pmscan_reader.py
+```
+
+### Fonctionnalités
+
+1. **Scan et connexion**
+   - Le script scanne automatiquement les appareils Bluetooth
+   - Liste les appareils PMScan trouvés
+   - Permet de sélectionner l'appareil à connecter
+
+2. **Affichage en temps réel**
+   - État de la batterie avec barre de progression
+   - État de charge avec code couleur :
+     - Rouge : Non branché
+     - Jaune : Pré-charge
+     - Cyan : En charge
+     - Vert : Chargé
+   - Mesures de particules :
+     - PM1.0 (µg/m³)
+     - PM2.5 (µg/m³)
+     - PM10.0 (µg/m³)
+     - Nombre de particules par ml
+   - Température du PCB
+   - Humidité interne
+   - Qualité de l'air avec code couleur LED :
+     - Verte : Excellente (< 10 µg/m³)
+     - Jaune : Bonne (< 30 µg/m³)
+     - Orange : Moyenne (< 50 µg/m³)
+     - Rouge : Mauvaise (< 80 µg/m³)
+     - Violette : Très mauvaise (≥ 80 µg/m³)
+
+3. **Gestion des erreurs**
+   - Vérification de la validité des données
+   - Messages d'erreur explicites
+   - Gestion des déconnexions
+
+## Format des données
+
+### Données temps réel (20 bytes)
+
+| Offset | Taille | Description | Format |
+|--------|---------|-------------|---------|
+| 0 | 4 | Timestamp | uint32 little-endian |
+| 4 | 1 | État | uint8 |
+| 5 | 1 | Commande | uint8 |
+| 6 | 2 | Particules/ml | uint16 little-endian |
+| 8 | 2 | PM1.0 | uint16 little-endian / 10 |
+| 10 | 2 | PM2.5 | uint16 little-endian / 10 |
+| 12 | 2 | PM10.0 | uint16 little-endian / 10 |
+| 14 | 2 | Température | uint16 little-endian / 10 |
+| 16 | 2 | Humidité | uint16 little-endian / 10 |
+| 18 | 2 | Réservé | - |
+
+### États de charge
+
+| Valeur | État | Description |
+|--------|------|-------------|
+| 0 | Non branché | Pas de chargeur connecté |
+| 1 | Pré-charge | Phase initiale de charge |
+| 2 | En charge | Charge normale en cours |
+| 3 | Chargé | Charge complète |
+
+## UUIDs Bluetooth
+
+Service principal : `f3641900-00b0-4240-ba50-05ca45bf8abc`
+
+Caractéristiques :
+- Données temps réel : `f3641901-00b0-4240-ba50-05ca45bf8abc`
+- Données mémoire : `f3641902-00b0-4240-ba50-05ca45bf8abc`
+- Alertes temp/humid : `f3641903-00b0-4240-ba50-05ca45bf8abc`
+- Niveau batterie : `f3641904-00b0-4240-ba50-05ca45bf8abc`
+- État charge : `f3641905-00b0-4240-ba50-05ca45bf8abc`
+- Horloge : `f3641906-00b0-4240-ba50-05ca45bf8abc`
+- Intervalle acquisition : `f3641907-00b0-4240-ba50-05ca45bf8abc`
+- Mode alimentation : `f3641908-00b0-4240-ba50-05ca45bf8abc`
+- Seuils temp/humid : `f3641909-00b0-4240-ba50-05ca45bf8abc`
+- Config affichage : `f364190a-00b0-4240-ba50-05ca45bf8abc`
+- Batterie heartbeat : `f364190b-00b0-4240-ba50-05ca45bf8abc`
+
+## Exemple de sortie
+
+```
+=== PMScan Données en temps réel ===
+
+Batterie:
+[██████████] 100%
+État de charge : Chargé
+
+État: 0x00
+Commande: 0x01
+Particules (PM10.0): 123 /ml
+PM1.0: 5.2 µg/m³
+PM2.5: 8.7 µg/m³
+PM10.0: 12.3 µg/m³
+Température PCB: 24.5°C
+Humidité interne: 45.2%
+Qualité de l'air: BONNE (LED Jaune)
+```
+
+## Dépannage
+
+1. **Erreur de connexion**
+   - Vérifiez que le Bluetooth est activé
+   - Assurez-vous que le capteur est allumé et à portée
+   - Redémarrez le script
+
+2. **Données invalides**
+   - Attendez que le capteur termine son initialisation
+   - Vérifiez que la batterie n'est pas trop faible
+   - Redémarrez le capteur si nécessaire
+
+3. **Problèmes de batterie**
+   - Si le niveau est anormal, rechargez complètement
+   - Vérifiez la connexion du chargeur
+   - Attendez la fin de la phase de pré-charge 
