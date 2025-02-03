@@ -1,7 +1,9 @@
 // Configuration des UUIDs BLE
-const PMSCAN_SERVICE_UUID = 'f3641900-00b0-4240-ba50-05ca45bf8abc';
-const REAL_TIME_DATA_UUID = 'f3641901-00b0-4240-ba50-05ca45bf8abc';
-const CURRENT_TIME_UUID = 'f3641906-00b0-4240-ba50-05ca45bf8abc';
+const PMSCAN_SERVICE_UUID = 'f3641900-b000-4042-ba50-05ca45bf8ab';
+const REAL_TIME_DATA_UUID = 'f3641901-b000-4042-ba50-05ca45bf8ab';
+const CURRENT_TIME_UUID = 'f3641906-b000-4042-ba50-05ca45bf8ab';
+const BATTERY_LEVEL_UUID = 'f3641904-b000-4042-ba50-05ca45bf8ab';
+const BATTERY_CHARGING_UUID = 'f3641905-b000-4042-ba50-05ca45bf8ab';
 
 // Variables globales
 let bluetoothDevice;
@@ -193,13 +195,40 @@ async function connectToPMScan() {
         const server = await bluetoothDevice.gatt.connect();
         const service = await server.getPrimaryService(PMSCAN_SERVICE_UUID);
         
-        // Configuration des notifications
+        // Configuration des notifications pour les données temps réel
         const characteristic = await service.getCharacteristic(REAL_TIME_DATA_UUID);
         await characteristic.startNotifications();
         characteristic.addEventListener('characteristicvaluechanged', (event) => {
             const data = parseRealTimeData(event.target.value);
             updateUI(data);
         });
+
+        // Configuration des notifications pour la batterie
+        const batteryLevelChar = await service.getCharacteristic(BATTERY_LEVEL_UUID);
+        await batteryLevelChar.startNotifications();
+        batteryLevelChar.addEventListener('characteristicvaluechanged', (event) => {
+            const value = event.target.value.getUint8(0);
+            document.getElementById('batteryLevel').textContent = value;
+            updateBatteryIcon(value);
+        });
+
+        // Lecture initiale du niveau de batterie
+        const batteryLevel = await batteryLevelChar.readValue();
+        const batteryValue = batteryLevel.getUint8(0);
+        document.getElementById('batteryLevel').textContent = batteryValue;
+        updateBatteryIcon(batteryValue);
+
+        // Configuration des notifications pour l'état de charge
+        const batteryChargingChar = await service.getCharacteristic(BATTERY_CHARGING_UUID);
+        await batteryChargingChar.startNotifications();
+        batteryChargingChar.addEventListener('characteristicvaluechanged', (event) => {
+            const value = event.target.value.getUint8(0);
+            updateChargingStatus(value);
+        });
+
+        // Lecture initiale de l'état de charge
+        const chargingState = await batteryChargingChar.readValue();
+        updateChargingStatus(chargingState.getUint8(0));
 
         // Envoi du timestamp actuel
         const timeChar = await service.getCharacteristic(CURRENT_TIME_UUID);
@@ -221,6 +250,49 @@ async function connectToPMScan() {
     } catch (error) {
         console.error('Erreur de connexion:', error);
         onDisconnected();
+    }
+}
+
+function updateBatteryIcon(level) {
+    const batteryIcon = document.getElementById('batteryIcon');
+    if (level >= 75) {
+        batteryIcon.className = 'bi bi-battery-full';
+    } else if (level >= 50) {
+        batteryIcon.className = 'bi bi-battery-half';
+    } else if (level >= 25) {
+        batteryIcon.className = 'bi bi-battery-low';
+    } else {
+        batteryIcon.className = 'bi bi-battery';
+    }
+}
+
+function updateChargingStatus(state) {
+    const chargingStatus = document.getElementById('chargingStatus');
+    const batteryIcon = document.getElementById('batteryIcon');
+    
+    switch (state) {
+        case 0:
+            chargingStatus.textContent = 'Non branché';
+            batteryIcon.classList.remove('text-success', 'text-warning');
+            break;
+        case 1:
+            chargingStatus.textContent = 'Pré-charge';
+            batteryIcon.classList.add('text-warning');
+            batteryIcon.classList.remove('text-success');
+            break;
+        case 2:
+            chargingStatus.textContent = 'En charge';
+            batteryIcon.classList.add('text-success');
+            batteryIcon.classList.remove('text-warning');
+            break;
+        case 3:
+            chargingStatus.textContent = 'Chargé';
+            batteryIcon.classList.add('text-success');
+            batteryIcon.classList.remove('text-warning');
+            break;
+        default:
+            chargingStatus.textContent = 'Inconnu';
+            batteryIcon.classList.remove('text-success', 'text-warning');
     }
 }
 

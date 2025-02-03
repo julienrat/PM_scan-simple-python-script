@@ -36,9 +36,17 @@ from . import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 # Définition des caractéristiques Bluetooth
-PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
-REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
-CURRENT_TIME_UUID = "f3641906-00b0-4240-ba50-05ca45bf8abc"
+PMSCAN_SERVICE_UUID = "f3641900-b000-4042-ba50-05ca45bf8ab"
+REAL_TIME_DATA_UUID = "f3641901-b000-4042-ba50-05ca45bf8ab"
+CURRENT_TIME_UUID = "f3641906-b000-4042-ba50-05ca45bf8ab"
+BATTERY_LEVEL_UUID = "f3641904-b000-4042-ba50-05ca45bf8ab"
+BATTERY_CHARGING_UUID = "f3641905-b000-4042-ba50-05ca45bf8ab"
+
+# Constantes pour l'état de charge de la batterie
+BATTERY_NOT_CHARGING = 0
+BATTERY_PRE_CHARGING = 1
+BATTERY_CHARGING = 2
+BATTERY_FULLY_CHARGED = 3
 
 # Intervalle de mesure par défaut en secondes
 DEFAULT_MEASUREMENT_INTERVAL = 5
@@ -123,6 +131,8 @@ async def async_setup_entry(
                 PMScanPM10Sensor(discovery_info),
                 PMScanTemperatureSensor(discovery_info),
                 PMScanHumiditySensor(discovery_info),
+                PMScanBatteryLevelSensor(discovery_info),
+                PMScanBatteryChargingSensor(discovery_info),
             ])
             break
 
@@ -157,51 +167,69 @@ async def async_setup_entry(
                         """Handle notification from PMScan device."""
                         nonlocal last_update
                         _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
-                        parsed_data = parse_notification_data(data)
-                        if parsed_data:
-                            last_update = dt_util.utcnow()
+                        
+                        # Gestion des différentes caractéristiques
+                        if str(sender).endswith(REAL_TIME_DATA_UUID[-12:]):
+                            parsed_data = parse_notification_data(data)
+                            if parsed_data:
+                                last_update = dt_util.utcnow()
+                                for sensor in sensors:
+                                    if sensor.value_type in parsed_data:
+                                        sensor.update_value(parsed_data[sensor.value_type])
+                        
+                        elif str(sender).endswith(BATTERY_LEVEL_UUID[-12:]):
+                            battery_level = data[0]
+                            _LOGGER.debug("Niveau de batterie reçu: %d%%", battery_level)
                             for sensor in sensors:
-                                if sensor.value_type in parsed_data:
-                                    sensor.update_value(parsed_data[sensor.value_type])
+                                if sensor.value_type == "battery_level":
+                                    sensor.update_value(battery_level)
+                        
+                        elif str(sender).endswith(BATTERY_CHARGING_UUID[-12:]):
+                            charging_state = data[0]
+                            _LOGGER.debug("État de charge reçu: %d", charging_state)
+                            for sensor in sensors:
+                                if sensor.value_type == "battery_charging":
+                                    sensor.update_value(charging_state)
 
-                    # Activation des notifications
+                    # Activation des notifications pour toutes les caractéristiques
                     await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
-                    _LOGGER.info("Notifications activées pour %s", REAL_TIME_DATA_UUID)
+                    _LOGGER.info("Notifications activées pour les données temps réel")
+                    
+                    await client.start_notify(BATTERY_LEVEL_UUID, notification_handler)
+                    _LOGGER.info("Notifications activées pour le niveau de batterie")
+                    
+                    await client.start_notify(BATTERY_CHARGING_UUID, notification_handler)
+                    _LOGGER.info("Notifications activées pour l'état de charge")
 
-                    # Boucle de vérification des mises à jour
+                    # Lecture initiale du niveau de batterie et de l'état de charge
+                    try:
+                        battery_level = await client.read_gatt_char(BATTERY_LEVEL_UUID)
+                        charging_state = await client.read_gatt_char(BATTERY_CHARGING_UUID)
+                        
+                        # Mise à jour des capteurs avec les valeurs initiales
+                        for sensor in sensors:
+                            if sensor.value_type == "battery_level":
+                                sensor.update_value(battery_level[0])
+                            elif sensor.value_type == "battery_charging":
+                                sensor.update_value(charging_state[0])
+                    except Exception as e:
+                        _LOGGER.warning("Erreur lors de la lecture initiale de la batterie: %s", str(e))
+
                     while True:
                         try:
                             await check_interval
-                            current_time = dt_util.utcnow()
+                            check_interval = asyncio.create_task(asyncio.sleep(60))  # Vérifie toutes les minutes
                             
-                            if last_update is None or current_time - last_update > MAX_TIME_BETWEEN_UPDATES:
-                                _LOGGER.warning("Pas de mise à jour reçue depuis %s secondes, reconnexion...", 
-                                             MAX_TIME_BETWEEN_UPDATES.total_seconds())
+                            if last_update and dt_util.utcnow() - last_update > MAX_TIME_BETWEEN_UPDATES:
+                                _LOGGER.warning("Pas de données reçues depuis %s", MAX_TIME_BETWEEN_UPDATES)
                                 break
-
-                            check_interval = asyncio.create_task(asyncio.sleep(measurement_interval))
-                            
+                                
                         except asyncio.CancelledError:
                             break
 
-                    if keep_connection:
-                        # Si on maintient la connexion, on attend indéfiniment
-                        while True:
-                            await asyncio.sleep(1)
-                    else:
-                        # Sinon, on se déconnecte après chaque mise à jour
-                        await client.stop_notify(REAL_TIME_DATA_UUID)
-                        _LOGGER.info("Déconnexion du PMScan %s", address)
-                        return
-
             except Exception as e:
-                _LOGGER.error("Erreur lors de la connexion au PMScan: %s", str(e))
-                if not keep_connection:
-                    # Si on ne maintient pas la connexion, on attend plus longtemps entre les tentatives
-                    await asyncio.sleep(measurement_interval)
-                else:
-                    # Sinon, on réessaie plus rapidement
-                    await asyncio.sleep(5)
+                _LOGGER.error("Erreur de connexion: %s", str(e))
+                await asyncio.sleep(5)  # Attente avant nouvelle tentative
 
     # Démarrer la connexion en arrière-plan
     hass.async_create_task(connect_and_subscribe())
@@ -429,4 +457,51 @@ class PMScanHumiditySensor(PMScanSensor):
     @property
     def native_value(self) -> float | None:
         """Return the humidity."""
-        return self._value 
+        return self._value
+
+class PMScanBatteryLevelSensor(PMScanSensor):
+    """Representation of PMScan battery level sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = f"PMScan {discovery_info.name} Niveau Batterie"
+        self._attr_unique_id = f"{discovery_info.address}_battery_level"
+        self._attr_device_class = SensorDeviceClass.BATTERY
+        self._attr_native_unit_of_measurement = PERCENTAGE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:battery"
+        self.value_type = "battery_level"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the battery level."""
+        return self._value
+
+class PMScanBatteryChargingSensor(PMScanSensor):
+    """Representation of PMScan battery charging state sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = f"PMScan {discovery_info.name} État Charge"
+        self._attr_unique_id = f"{discovery_info.address}_battery_charging"
+        self._attr_state_class = None
+        self._attr_icon = "mdi:battery-charging"
+        self.value_type = "battery_charging"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the charging state."""
+        if self._value is None:
+            return None
+        
+        states = {
+            BATTERY_NOT_CHARGING: "Non branché",
+            BATTERY_PRE_CHARGING: "Pré-charge",
+            BATTERY_CHARGING: "En charge",
+            BATTERY_FULLY_CHARGED: "Chargé"
+        }
+        return states.get(self._value, f"Inconnu ({self._value})") 
