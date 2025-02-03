@@ -2,178 +2,121 @@
 from __future__ import annotations
 
 import logging
-import struct
-from datetime import datetime
+from typing import Any
 
-from bleak import BleakClient, BleakScanner
-from bleak.backends.device import BLEDevice
-from bleak.exc import BleakError
-
+from homeassistant.components.bluetooth import (
+    BluetoothServiceInfoBleak,
+    async_discovered_service_info,
+)
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     PERCENTAGE,
-    TEMP_CELSIUS,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-)
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+
+from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Configuration des UUIDs BLE
-PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
-REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
-CURRENT_TIME_UUID = "f3641906-00b0-4240-ba50-05ca45bf8abc"
-
-SCAN_INTERVAL = 60
-
 async def async_setup_entry(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant, entry: ConfigType, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the PMScan sensors."""
-    coordinator = PMScanCoordinator(hass, config_entry)
-    await coordinator.async_config_entry_first_refresh()
+    """Set up PMScan sensors."""
+    address = entry.data["address"]
 
-    entities = []
-    for description in SENSOR_TYPES:
-        entities.append(PMScanSensor(coordinator, description))
-    
-    async_add_entities(entities)
+    sensors = []
+    for discovery_info in async_discovered_service_info(hass):
+        if discovery_info.address == address:
+            sensors.extend([
+                PMScanPM1Sensor(discovery_info),
+                PMScanPM25Sensor(discovery_info),
+                PMScanPM10Sensor(discovery_info),
+                PMScanTemperatureSensor(discovery_info),
+                PMScanHumiditySensor(discovery_info),
+            ])
+            break
 
-class PMScanCoordinator(DataUpdateCoordinator):
-    """PMScan data update coordinator."""
+    async_add_entities(sensors)
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-        """Initialize the coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="PMScan",
-            update_interval=SCAN_INTERVAL,
-        )
-        self.config_entry = config_entry
-        self.device: BLEDevice | None = None
-        self.client: BleakClient | None = None
-
-    async def _async_update_data(self):
-        """Fetch data from PMScan."""
-        if not self.device:
-            devices = await BleakScanner.discover()
-            for device in devices:
-                if device.name and "PMScan" in device.name:
-                    self.device = device
-                    break
-            if not self.device:
-                raise BleakError("PMScan not found")
-
-        try:
-            async with BleakClient(self.device) as client:
-                # Envoi du timestamp
-                timestamp = int(datetime.now().timestamp())
-                await client.write_gatt_char(
-                    CURRENT_TIME_UUID,
-                    struct.pack("<I", timestamp)
-                )
-
-                # Lecture des données
-                data = await client.read_gatt_char(REAL_TIME_DATA_UUID)
-                return self.parse_data(data)
-
-        except BleakError as error:
-            self.device = None
-            raise error
-
-    @staticmethod
-    def parse_data(data):
-        """Parse PMScan data."""
-        timestamp, _, _, _, pm1_0, pm2_5, pm10_0, temp, humidity, _ = struct.unpack("<IBBHHHHHHh", data)
-        return {
-            "pm1_0": pm1_0 / 10.0,
-            "pm2_5": pm2_5 / 10.0,
-            "pm10_0": pm10_0 / 10.0,
-            "temperature": temp / 10.0,
-            "humidity": humidity / 10.0,
-        }
-
-SENSOR_TYPES = [
-    {
-        "key": "pm1_0",
-        "name": "PM1.0",
-        "device_class": None,
-        "state_class": SensorStateClass.MEASUREMENT,
-        "native_unit_of_measurement": CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        "icon": "mdi:air-filter",
-    },
-    {
-        "key": "pm2_5",
-        "name": "PM2.5",
-        "device_class": None,
-        "state_class": SensorStateClass.MEASUREMENT,
-        "native_unit_of_measurement": CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        "icon": "mdi:air-filter",
-    },
-    {
-        "key": "pm10_0",
-        "name": "PM10.0",
-        "device_class": None,
-        "state_class": SensorStateClass.MEASUREMENT,
-        "native_unit_of_measurement": CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        "icon": "mdi:air-filter",
-    },
-    {
-        "key": "temperature",
-        "name": "Temperature",
-        "device_class": SensorDeviceClass.TEMPERATURE,
-        "state_class": SensorStateClass.MEASUREMENT,
-        "native_unit_of_measurement": TEMP_CELSIUS,
-        "icon": "mdi:thermometer",
-    },
-    {
-        "key": "humidity",
-        "name": "Humidity",
-        "device_class": SensorDeviceClass.HUMIDITY,
-        "state_class": SensorStateClass.MEASUREMENT,
-        "native_unit_of_measurement": PERCENTAGE,
-        "icon": "mdi:water-percent",
-    },
-]
-
-class PMScanSensor(CoordinatorEntity, SensorEntity):
+class PMScanSensor(SensorEntity):
     """Representation of a PMScan sensor."""
 
-    def __init__(self, coordinator: PMScanCoordinator, description: dict) -> None:
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator)
-        self._attr_name = f"PMScan {description['name']}"
-        self._attr_unique_id = f"pmscan_{description['key']}"
-        self._attr_device_class = description["device_class"]
-        self._attr_state_class = description["state_class"]
-        self._attr_native_unit_of_measurement = description["native_unit_of_measurement"]
-        self._attr_icon = description["icon"]
-        self._key = description["key"]
-        
-        self._attr_device_info = DeviceInfo(
-            identifiers={("pmscan", coordinator.config_entry.entry_id)},
-            name="PMScan Air Quality Monitor",
-            manufacturer="PMScan",
-            model="PMScan Air Quality Monitor",
-        )
+        self._discovery_info = discovery_info
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
-    def native_value(self):
-        """Return the state of the sensor."""
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get(self._key) 
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return {
+            "identifiers": {(DOMAIN, self._discovery_info.address)},
+            "name": f"PMScan ({self._discovery_info.name})",
+            "manufacturer": "Tera Sensor",
+            "model": "PMScan",
+        }
+
+class PMScanPM1Sensor(PMScanSensor):
+    """Representation of a PMScan PM1.0 sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = "PM1.0"
+        self._attr_unique_id = f"{discovery_info.address}_pm1_0"
+        self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
+        self._attr_device_class = SensorDeviceClass.PM1
+
+class PMScanPM25Sensor(PMScanSensor):
+    """Representation of a PMScan PM2.5 sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = "PM2.5"
+        self._attr_unique_id = f"{discovery_info.address}_pm2_5"
+        self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
+        self._attr_device_class = SensorDeviceClass.PM25
+
+class PMScanPM10Sensor(PMScanSensor):
+    """Representation of a PMScan PM10 sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = "PM10"
+        self._attr_unique_id = f"{discovery_info.address}_pm10_0"
+        self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
+        self._attr_device_class = SensorDeviceClass.PM10
+
+class PMScanTemperatureSensor(PMScanSensor):
+    """Representation of a PMScan temperature sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = "Temperature"
+        self._attr_unique_id = f"{discovery_info.address}_temperature"
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+
+class PMScanHumiditySensor(PMScanSensor):
+    """Representation of a PMScan humidity sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = "Humidity"
+        self._attr_unique_id = f"{discovery_info.address}_humidity"
+        self._attr_native_unit_of_measurement = PERCENTAGE
+        self._attr_device_class = SensorDeviceClass.HUMIDITY 
