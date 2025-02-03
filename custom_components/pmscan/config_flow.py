@@ -11,7 +11,7 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
     async_get_scanner,
-    BluetoothScanningMode,
+    async_scanner_count,
 )
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
@@ -107,26 +107,31 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={CONF_ADDRESS: address},
             )
 
-        scanner = async_get_scanner(self.hass)
-        if not scanner:
-            _LOGGER.error("Scanner Bluetooth non disponible")
+        if not async_scanner_count(self.hass):
+            _LOGGER.error("Aucun scanner Bluetooth disponible")
             return self.async_abort(reason="no_bluetooth")
 
         _LOGGER.debug("Recherche des appareils Bluetooth...")
         
         discovered_devices = {}
         for discovery_info in async_discovered_service_info(self.hass):
-            _LOGGER.debug(
-                "Appareil trouvé - Nom: %s, Adresse: %s, RSSI: %s, Services: %s, Données fabricant: %s",
-                discovery_info.name,
-                discovery_info.address,
-                discovery_info.rssi,
-                discovery_info.service_uuids,
-                discovery_info.manufacturer_data
-            )
-            
-            # Accepte tous les appareils pour le moment pour debug
-            discovered_devices[discovery_info.address] = discovery_info
+            try:
+                _LOGGER.debug(
+                    "Appareil trouvé - Nom: %s, Adresse: %s, RSSI: %s",
+                    discovery_info.name,
+                    discovery_info.address,
+                    discovery_info.rssi,
+                )
+                if discovery_info.service_uuids:
+                    _LOGGER.debug("Services disponibles: %s", discovery_info.service_uuids)
+                if discovery_info.manufacturer_data:
+                    _LOGGER.debug("Données fabricant: %s", discovery_info.manufacturer_data)
+                
+                # Pour le débogage, on accepte tous les appareils
+                discovered_devices[discovery_info.address] = discovery_info
+            except Exception as e:
+                _LOGGER.error("Erreur lors de l'analyse de l'appareil: %s", str(e))
+                continue
 
         self._discovered_devices = discovered_devices
 
@@ -139,31 +144,34 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "Aucun appareil Bluetooth trouvé. Vérifiez que :\n"
                         "1. Le Bluetooth est activé sur votre système\n"
                         "2. Vous avez les permissions Bluetooth nécessaires\n"
-                        "3. L'adaptateur Bluetooth est fonctionnel"
+                        "3. L'adaptateur Bluetooth est fonctionnel\n"
+                        "4. L'appareil PMScan est allumé et à portée"
                     )
                 }
             )
 
         _LOGGER.info("Appareils trouvés: %s", list(discovered_devices.keys()))
 
+        devices_dict = {}
+        for address, info in discovered_devices.items():
+            try:
+                name = info.name or "Inconnu"
+                rssi = getattr(info, "rssi", "N/A")
+                services = len(getattr(info, "service_uuids", []) or [])
+                devices_dict[address] = f"{name} ({address}) - Signal: {rssi}dBm - Services: {services}"
+            except Exception as e:
+                _LOGGER.error("Erreur lors de la création de l'entrée du menu: %s", str(e))
+                devices_dict[address] = f"Appareil ({address})"
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_ADDRESS): vol.In(
-                        {
-                            address: (
-                                f"{info.name or 'Inconnu'} ({address}) "
-                                f"RSSI: {info.rssi}dBm "
-                                f"Services: {len(info.service_uuids or [])}"
-                            )
-                            for address, info in discovered_devices.items()
-                        }
-                    )
+                    vol.Required(CONF_ADDRESS): vol.In(devices_dict)
                 }
             ),
             description_placeholders={
-                "error_message": f"Sélectionnez votre appareil PMScan parmi les {len(discovered_devices)} appareils trouvés"
+                "error_message": f"Sélectionnez votre appareil PMScan parmi les {len(devices_dict)} appareils trouvés"
             }
         )
 
