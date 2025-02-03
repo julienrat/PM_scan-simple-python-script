@@ -1,0 +1,17 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "PMScan",
+                "description": "Choisissez votre appareil PMScan",
+                "data": {
+                    "address": "Appareil"
+                }
+            }
+        },
+        "abort": {
+            "no_unconfigured_devices": "Aucun appareil PMScan non configuré trouvé.",
+            "already_configured": "L'appareil est déjà configuré"
+        }
+    }
+} 

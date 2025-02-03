@@ -1,0 +1,16 @@
+{
+  "domain": "pmscan",
+  "name": "PMScan Air Quality Monitor",
+  "documentation": "https://github.com/julienrat/PM_scan-simple-python-script",
+  "dependencies": ["bluetooth_adapters"],
+  "codeowners": ["@julienrat"],
+  "requirements": ["bleak>=0.21.1"],
+  "bluetooth": [
+    {
+      "local_name": "PMScan*",
+      "service_uuid": "f3641900-00b0-4240-ba50-05ca45bf8abc"
+    }
+  ],
+  "version": "1.0.0",
+  "iot_class": "local_polling"
+} 

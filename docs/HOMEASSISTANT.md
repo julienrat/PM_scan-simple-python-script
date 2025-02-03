@@ -1,50 +1,40 @@
 # 🏠 PMScan - Intégration Home Assistant
 
 ## 📝 Description
-Cette intégration permet de connecter votre capteur PMScan à Home Assistant via MQTT. Elle permet de :
+Cette intégration permet de connecter votre capteur PMScan à Home Assistant via Bluetooth. Elle permet de :
 - Visualiser les données en temps réel
 - Créer des automatisations
 - Enregistrer l'historique des mesures
 - Configurer des alertes
 
 ## ⚙️ Prérequis
-- Home Assistant installé et configuré
-- MQTT Broker configuré dans Home Assistant
-- Python 3.7+ sur la machine qui exécutera le script
+- Home Assistant 2023.8.0 ou plus récent
+- Un adaptateur Bluetooth compatible
 - Un capteur PMScan
-- Une connexion Bluetooth
 
 ## 🚀 Installation
 
-1. Installez les dépendances Python :
-```bash
-pip install -r requirements.txt
-```
+### Méthode 1 : HACS (recommandée)
+1. Assurez-vous d'avoir [HACS](https://hacs.xyz/) installé
+2. Allez dans HACS > Intégrations > Menu (⋮) > Dépôts personnalisés
+3. Ajoutez le dépôt : `https://github.com/julienrat/PM_scan-simple-python-script`
+4. Cliquez sur "PMScan" dans la liste des intégrations
+5. Cliquez sur "Télécharger"
+6. Redémarrez Home Assistant
 
-2. Configurez le fichier `config.yaml` :
-```yaml
-mqtt:
-  broker: homeassistant.local  # Adresse de votre broker MQTT
-  port: 1883                   # Port MQTT
-  username: homeassistant      # Utilisateur MQTT
-  password: "votre_mot_de_passe"  # Mot de passe MQTT
-  topic_prefix: homeassistant/sensor/pmscan
+### Méthode 2 : Installation manuelle
+1. Téléchargez le dossier `custom_components/pmscan`
+2. Copiez-le dans le dossier `custom_components` de votre installation Home Assistant
+3. Redémarrez Home Assistant
 
-device:
-  address: null  # Sera détecté automatiquement
-  name: PMScan
-  model: PMScan Air Quality Monitor
-  manufacturer: PMScan
+## 🔧 Configuration
+1. Allez dans Configuration > Intégrations
+2. Cliquez sur le bouton "+" (Ajouter une intégration)
+3. Recherchez "PMScan"
+4. Sélectionnez votre appareil PMScan dans la liste
+5. L'intégration va automatiquement créer les entités
 
-update_interval: 60  # Secondes
-```
-
-3. Lancez le script :
-```bash
-python pmscan_homeassistant.py
-```
-
-## 📊 Entités créées dans Home Assistant
+## 📊 Entités créées
 
 ### Capteurs
 - `sensor.pmscan_pm1_0` : Concentration PM1.0 (μg/m³)
@@ -53,15 +43,9 @@ python pmscan_homeassistant.py
 - `sensor.pmscan_temperature` : Température (°C)
 - `sensor.pmscan_humidity` : Humidité (%)
 
-### Attributs
-Chaque capteur inclut :
-- Horodatage de la dernière mise à jour
-- Qualité du signal Bluetooth
-- État de la batterie (si disponible)
+## 🎨 Exemples d'utilisation
 
-## 🎨 Personnalisation dans Home Assistant
-
-### Exemple de carte Lovelace
+### Carte Lovelace
 ```yaml
 type: vertical-stack
 cards:
@@ -79,60 +63,40 @@ cards:
       - entity: sensor.pmscan_pm2_5
 ```
 
-### Exemple d'automatisation
+### Automatisation d'alerte
 ```yaml
-automation:
-  - alias: "Alerte Qualité Air"
-    trigger:
-      platform: numeric_state
-      entity_id: sensor.pmscan_pm2_5
-      above: 25
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "Attention ! PM2.5 élevé"
-```
-
-## 🔧 Configuration avancée
-
-### Multiples capteurs
-Pour utiliser plusieurs PMScan :
-1. Créez des copies du fichier config.yaml
-2. Modifiez le `topic_prefix` pour chaque appareil
-3. Lancez une instance du script pour chaque configuration
-
-### Intégration dans InfluxDB
-Ajoutez dans votre configuration Home Assistant :
-```yaml
-influxdb:
-  host: localhost
-  include:
-    entities:
-      - sensor.pmscan_pm2_5
-      - sensor.pmscan_pm10_0
+alias: Alerte Qualité Air
+description: "Envoie une notification quand le PM2.5 dépasse 25 μg/m³"
+trigger:
+  - platform: numeric_state
+    entity_id: sensor.pmscan_pm2_5
+    above: 25
+action:
+  - service: notify.mobile_app
+    data:
+      message: "⚠️ Attention ! Niveau PM2.5 élevé : {{ states('sensor.pmscan_pm2_5') }} μg/m³"
 ```
 
 ## 🐛 Dépannage
 
 ### Problèmes courants
-1. MQTT non connecté :
-   - Vérifiez les identifiants MQTT
-   - Vérifiez que le broker est accessible
-   
-2. Bluetooth non détecté :
+1. Bluetooth non détecté :
    - Vérifiez que le PMScan est allumé
-   - Vérifiez les droits Bluetooth
-   - Redémarrez le script
-
-3. Données manquantes :
+   - Vérifiez que le Bluetooth est activé dans Home Assistant
+   - Vérifiez que l'adaptateur Bluetooth est compatible
+   
+2. Données manquantes :
    - Vérifiez la portée Bluetooth
-   - Vérifiez les logs du script
-   - Vérifiez la configuration MQTT
+   - Vérifiez les logs de Home Assistant
+   - Redémarrez le PMScan
 
 ### Logs
-Pour activer les logs détaillés :
-```bash
-python pmscan_homeassistant.py --debug
+Pour activer les logs détaillés, ajoutez à `configuration.yaml` :
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.pmscan: debug
 ```
 
 ## 📈 Graphiques recommandés
@@ -171,5 +135,5 @@ binary_sensor:
 
 ## 📚 Ressources
 - [Documentation Home Assistant](https://www.home-assistant.io/)
-- [Documentation MQTT](https://www.home-assistant.io/integrations/mqtt/)
-- [Guide Lovelace](https://www.home-assistant.io/lovelace/) 
+- [Guide Bluetooth dans Home Assistant](https://www.home-assistant.io/integrations/bluetooth/)
+- [Guide des composants personnalisés](https://developers.home-assistant.io/docs/creating_component_index) 

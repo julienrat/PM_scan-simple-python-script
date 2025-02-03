@@ -1,0 +1,36 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "PMScan",
+                "description": "Choisissez votre appareil PMScan",
+                "data": {
+                    "address": "Appareil"
+                }
+            }
+        },
+        "abort": {
+            "no_unconfigured_devices": "Aucun appareil PMScan non configuré trouvé.",
+            "already_configured": "L'appareil est déjà configuré"
+        }
+    },
+    "entity": {
+        "sensor": {
+            "pm1_0": {
+                "name": "PM1.0"
+            },
+            "pm2_5": {
+                "name": "PM2.5"
+            },
+            "pm10_0": {
+                "name": "PM10.0"
+            },
+            "temperature": {
+                "name": "Température"
+            },
+            "humidity": {
+                "name": "Humidité"
+            }
+        }
+    }
+} 
