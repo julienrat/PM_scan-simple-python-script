@@ -11,6 +11,7 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
     async_get_scanner,
+    BluetoothScanningMode,
 )
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
@@ -102,33 +103,54 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             address = user_input[CONF_ADDRESS]
             discovery_info = self._discovered_devices[address]
             return self.async_create_entry(
-                title=f"PMScan ({discovery_info.name})",
+                title=f"PMScan ({discovery_info.name or address})",
                 data={CONF_ADDRESS: address},
             )
 
         scanner = async_get_scanner(self.hass)
         if not scanner:
+            _LOGGER.error("Scanner Bluetooth non disponible")
             return self.async_abort(reason="no_bluetooth")
+
+        _LOGGER.debug("Démarrage du scan Bluetooth...")
+        
+        # Force un scan actif
+        await scanner.async_start_scanning(
+            scanning_mode=BluetoothScanningMode.ACTIVE,
+            service_uuids=None  # Scan tous les appareils
+        )
 
         discovered_devices = {}
         for discovery_info in async_discovered_service_info(self.hass):
-            if discovery_info.name and "PMScan" in discovery_info.name:
-                discovered_devices[discovery_info.address] = discovery_info
-                _LOGGER.debug(
-                    "PMScan trouvé - Nom: %s, Adresse: %s",
-                    discovery_info.name,
-                    discovery_info.address,
-                )
+            _LOGGER.debug(
+                "Appareil trouvé - Nom: %s, Adresse: %s, RSSI: %s, Services: %s, Données fabricant: %s",
+                discovery_info.name,
+                discovery_info.address,
+                discovery_info.rssi,
+                discovery_info.service_uuids,
+                discovery_info.manufacturer_data
+            )
+            
+            # Accepte tous les appareils pour le moment pour debug
+            discovered_devices[discovery_info.address] = discovery_info
 
         self._discovered_devices = discovered_devices
 
         if not discovered_devices:
+            _LOGGER.warning("Aucun appareil Bluetooth trouvé")
             return self.async_show_form(
                 step_id="user",
                 description_placeholders={
-                    "error_message": "Aucun appareil PMScan trouvé. Vérifiez qu'il est allumé et à portée."
+                    "error_message": (
+                        "Aucun appareil Bluetooth trouvé. Vérifiez que :\n"
+                        "1. Le Bluetooth est activé sur votre système\n"
+                        "2. Vous avez les permissions Bluetooth nécessaires\n"
+                        "3. L'adaptateur Bluetooth est fonctionnel"
+                    )
                 }
             )
+
+        _LOGGER.info("Appareils trouvés: %s", list(discovered_devices.keys()))
 
         return self.async_show_form(
             step_id="user",
@@ -136,12 +158,19 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_ADDRESS): vol.In(
                         {
-                            address: f"{info.name} ({address})"
+                            address: (
+                                f"{info.name or 'Inconnu'} ({address}) "
+                                f"RSSI: {info.rssi}dBm "
+                                f"Services: {len(info.service_uuids or [])}"
+                            )
                             for address, info in discovered_devices.items()
                         }
                     )
                 }
             ),
+            description_placeholders={
+                "error_message": f"Sélectionnez votre appareil PMScan parmi les {len(discovered_devices)} appareils trouvés"
+            }
         )
 
     @staticmethod
