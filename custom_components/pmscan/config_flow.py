@@ -112,14 +112,8 @@ class PMScanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Scanner Bluetooth non disponible")
             return self.async_abort(reason="no_bluetooth")
 
-        _LOGGER.debug("Démarrage du scan Bluetooth...")
+        _LOGGER.debug("Recherche des appareils Bluetooth...")
         
-        # Force un scan actif
-        await scanner.async_start_scanning(
-            scanning_mode=BluetoothScanningMode.ACTIVE,
-            service_uuids=None  # Scan tous les appareils
-        )
-
         discovered_devices = {}
         for discovery_info in async_discovered_service_info(self.hass):
             _LOGGER.debug(
