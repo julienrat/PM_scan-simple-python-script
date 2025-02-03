@@ -69,6 +69,15 @@ MAX_CONNECTION_ATTEMPTS = 3
 CONNECTION_TIMEOUT = 30.0
 RECONNECTION_DELAY = 10
 
+# Seuils de qualité de l'air pour PM10 (en µg/m³)
+AIR_QUALITY_THRESHOLDS = {
+    10: ("EXCELLENTE", "Verte"),     # < 10 µg/m³
+    30: ("BONNE", "Jaune"),          # < 30 µg/m³
+    50: ("MOYENNE", "Orange"),        # < 50 µg/m³
+    80: ("MAUVAISE", "Rouge"),       # < 80 µg/m³
+    float('inf'): ("TRÈS MAUVAISE", "Violette")  # ≥ 80 µg/m³
+}
+
 # Log des UUIDs au démarrage
 _LOGGER.debug("UUIDs Bluetooth configurés:")
 _LOGGER.debug("Service: %s", PMSCAN_SERVICE_UUID)
@@ -80,56 +89,52 @@ _LOGGER.debug("État charge: %s", BATTERY_CHARGING_UUID)
 def parse_notification_data(data: bytearray) -> dict[str, Any]:
     """Parse notification data from PMScan device."""
     try:
-        if len(data) < 20:
+        if len(data) != 20:
             _LOGGER.error("Taille des données invalide: %d bytes (attendu: 20 bytes)", len(data))
             return {}
 
         _LOGGER.debug("Données brutes: %s", ' '.join(f'{x:02X}' for x in data))
         
-        # Format: AA AA AA AA BB CC DD DD EE EE FF FF GG GG HH HH II II XX XX
-        # AA AA AA AA: Timestamp (uint32)
-        # BB: NextPM State byte
-        # CC: NextPM Command ID byte
-        # DD DD: Particles count/ml (PM 10.0)
-        # EE EE: PM1.0 (μg/m3) (diviser par 10)
-        # FF FF: PM2.5 (μg/m3) (diviser par 10)
-        # GG GG: PM10.0 (μg/m3) (diviser par 10)
-        # HH HH: Temperature (°C) (diviser par 10)
-        # II II: Humidity (%) (diviser par 10)
-        # XX XX: Reserved
+        # Format des données (20 bytes):
+        # - Timestamp (4 bytes): Horodatage Unix
+        # - State (1 byte): État du capteur
+        # - Command (1 byte): Commande en cours
+        # - Particles count (2 bytes): Nombre de particules par ml
+        # - PM1.0 (2 bytes): Concentration en µg/m³ (divisé par 10)
+        # - PM2.5 (2 bytes): Concentration en µg/m³ (divisé par 10)
+        # - PM10.0 (2 bytes): Concentration en µg/m³ (divisé par 10)
+        # - Temperature (2 bytes): Température en °C (divisé par 10)
+        # - Humidity (2 bytes): Humidité en % (divisé par 10)
+        # - Reserved (2 bytes): Non utilisé
             
-        timestamp = int.from_bytes(data[0:4], byteorder='little')
-        state = data[4]
-        command = data[5]
-        particles = int.from_bytes(data[6:8], byteorder='little')
-        pm1_0 = float(int.from_bytes(data[8:10], byteorder='little')) / 10.0
-        pm2_5 = float(int.from_bytes(data[10:12], byteorder='little')) / 10.0
-        pm10_0 = float(int.from_bytes(data[12:14], byteorder='little')) / 10.0
-        temp = float(int.from_bytes(data[14:16], byteorder='little')) / 10.0
-        humidity = float(int.from_bytes(data[16:18], byteorder='little')) / 10.0
+        timestamp, state, cmd, particles_count, pm1_0, pm2_5, pm10_0, temp, humidity = struct.unpack("<IBBHHHHHHxx", data)
         
-        # Vérification des valeurs
-        if pm1_0 > 1000 or pm2_5 > 1000 or pm10_0 > 1000:
-            _LOGGER.warning("Valeurs PM anormales détectées: PM1.0=%f, PM2.5=%f, PM10=%f", 
-                          pm1_0, pm2_5, pm10_0)
-            
-        if humidity > 100:
-            _LOGGER.warning("Valeur d'humidité anormale détectée: %f%%", humidity)
-            humidity = min(humidity, 100)
+        # Vérification des valeurs PM pendant le démarrage (0xFFFF = capteur en initialisation)
+        if pm1_0 == 0xFFFF or pm2_5 == 0xFFFF or pm10_0 == 0xFFFF:
+            _LOGGER.warning("Capteur en phase de démarrage, valeurs PM non valides")
+            return {}
         
-        if temp < -40 or temp > 85:
-            _LOGGER.warning("Température hors limites: %f°C", temp)
-            
+        # Calcul et vérification des valeurs
+        humidity_value = humidity / 10.0
+        if humidity_value > 100:
+            _LOGGER.warning("Valeur d'humidité anormale détectée: %f%%", humidity_value)
+            humidity_value = min(humidity_value, 100)  # Limite à 100%
+        
+        temp_value = temp / 10.0
+        if temp_value < -40 or temp_value > 85:
+            _LOGGER.warning("Température hors limites: %f°C", temp_value)
+            _LOGGER.info("Note: La température est celle du PCB interne, pas de l'environnement")
+        
         result = {
             "timestamp": timestamp,
             "state": state,
-            "command": command,
-            "particles_count": particles,
-            "pm1_0": pm1_0,
-            "pm2_5": pm2_5,
-            "pm10": pm10_0,
-            "temperature": temp,
-            "humidity": humidity,
+            "command": cmd,
+            "particles_count": particles_count,
+            "pm1_0": pm1_0 / 10.0,
+            "pm2_5": pm2_5 / 10.0,
+            "pm10": pm10_0 / 10.0,
+            "temperature": temp_value,
+            "humidity": humidity_value
         }
         
         _LOGGER.debug("Données analysées: %s", result)
@@ -138,6 +143,21 @@ def parse_notification_data(data: bytearray) -> dict[str, Any]:
     except Exception as e:
         _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
         return {}
+
+def get_air_quality_info(pm10_value: float) -> tuple[str, str]:
+    """
+    Détermine la qualité de l'air et la couleur correspondante basée sur la valeur PM10.
+    
+    Args:
+        pm10_value (float): Valeur PM10 en µg/m³
+        
+    Returns:
+        tuple: (qualité, couleur_led)
+    """
+    for threshold, (quality, led_color) in AIR_QUALITY_THRESHOLDS.items():
+        if pm10_value < threshold:
+            return quality, led_color
+    return AIR_QUALITY_THRESHOLDS[float('inf')]
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigType, async_add_entities: AddEntitiesCallback
@@ -172,6 +192,7 @@ async def async_setup_entry(
                 PMScanHumiditySensor(discovery_info),
                 PMScanBatteryLevelSensor(discovery_info),
                 PMScanBatteryChargingSensor(discovery_info),
+                PMScanAirQualitySensor(discovery_info),
             ])
             break
 
@@ -598,4 +619,38 @@ class PMScanBatteryChargingSensor(PMScanSensor):
             BATTERY_CHARGING: "En charge",
             BATTERY_FULLY_CHARGED: "Chargé"
         }
-        return states.get(self._value, f"Inconnu ({self._value})") 
+        return states.get(self._value, f"Inconnu ({self._value})")
+
+class PMScanAirQualitySensor(PMScanSensor):
+    """Representation of PMScan air quality sensor."""
+
+    def __init__(self, discovery_info: BluetoothServiceInfoBleak) -> None:
+        """Initialize the sensor."""
+        super().__init__(discovery_info)
+        self._attr_name = f"PMScan {discovery_info.name} Qualité Air"
+        self._attr_unique_id = f"{discovery_info.address}_air_quality"
+        self._attr_state_class = None
+        self._attr_icon = "mdi:air-filter"
+        self.value_type = "pm10"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+        self._attr_suggested_display_precision = None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the air quality."""
+        if self._value is not None:
+            quality, _ = get_air_quality_info(self._value)
+            return quality
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the state attributes."""
+        if self._value is not None:
+            _, led_color = get_air_quality_info(self._value)
+            return {
+                "led_color": led_color,
+                "pm10_value": self._value
+            }
+        return {} 
