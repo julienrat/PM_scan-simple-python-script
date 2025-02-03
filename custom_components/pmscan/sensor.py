@@ -34,12 +34,6 @@ from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Préfixes des UUIDs pour identifier les caractéristiques
-PMSCAN_SERVICE_PREFIX = "f3641900"
-REAL_TIME_DATA_PREFIX = "f3641901"
-MEASUREMENT_INTERVAL_PREFIX = "f3641907"
-CURRENT_TIME_PREFIX = "f3641906"
-
 # Intervalle de mesure par défaut en secondes
 DEFAULT_MEASUREMENT_INTERVAL = 5
 # Intervalle de mesure minimum et maximum (en secondes)
@@ -136,20 +130,21 @@ async def async_setup_entry(
                     
                     # Découverte des caractéristiques
                     characteristics = await discover_characteristics(client)
-                    if not characteristics:
-                        _LOGGER.error("Impossible de trouver les caractéristiques nécessaires")
+                    if 'real_time_data' not in characteristics:
+                        _LOGGER.error("Impossible de trouver la caractéristique Real-Time Data")
                         await asyncio.sleep(5)
                         continue
                     
-                    # Envoi du timestamp actuel pour démarrer les mesures
-                    current_timestamp = int(datetime.now().timestamp())
-                    timestamp_bytes = current_timestamp.to_bytes(4, byteorder='little')
-                    await client.write_gatt_char(characteristics['current_time'], timestamp_bytes)
-                    _LOGGER.info("Timestamp envoyé: %d", current_timestamp)
+                    # Configuration optionnelle si les caractéristiques sont disponibles
+                    if 'current_time' in characteristics:
+                        current_timestamp = int(datetime.now().timestamp())
+                        timestamp_bytes = current_timestamp.to_bytes(4, byteorder='little')
+                        await client.write_gatt_char(characteristics['current_time'], timestamp_bytes)
+                        _LOGGER.info("Timestamp envoyé: %d", current_timestamp)
                     
-                    # Configuration de l'intervalle de mesure (5 = 1 seconde)
-                    await client.write_gatt_char(characteristics['measurement_interval'], bytes([5]))
-                    _LOGGER.info("Intervalle de mesure configuré à 1 seconde")
+                    if 'measurement_interval' in characteristics:
+                        await client.write_gatt_char(characteristics['measurement_interval'], bytes([5]))
+                        _LOGGER.info("Intervalle de mesure configuré à 1 seconde")
 
                     last_update = None
                     check_interval = asyncio.create_task(asyncio.sleep(0))
@@ -371,28 +366,49 @@ class PMScanHumiditySensor(PMScanSensor):
         """Return the humidity value."""
         return self._value
 
-async def discover_characteristics(client: BleakClient) -> dict[str, str]:
+async def discover_characteristics(client: BleakClient) -> dict[str, Any]:
     """Découvre les caractéristiques du PMScan."""
     characteristics = {}
     
     try:
         services = await client.get_services()
-        for service in services:
-            if PMSCAN_SERVICE_PREFIX in service.uuid.lower():
-                _LOGGER.debug("Service PMScan trouvé: %s", service.uuid)
-                for char in service.characteristics:
-                    char_uuid = char.uuid.lower()
-                    _LOGGER.debug("Caractéristique trouvée: %s", char_uuid)
-                    
-                    if REAL_TIME_DATA_PREFIX in char_uuid:
-                        characteristics['real_time_data'] = char.uuid
-                    elif MEASUREMENT_INTERVAL_PREFIX in char_uuid:
-                        characteristics['measurement_interval'] = char.uuid
-                    elif CURRENT_TIME_PREFIX in char_uuid:
-                        characteristics['current_time'] = char.uuid
-                
-                _LOGGER.info("Caractéristiques découvertes: %s", characteristics)
-                break
+        _LOGGER.debug("Services disponibles: %s", [
+            f"{service.uuid} ({[char.uuid for char in service.characteristics]})" 
+            for service in services
+        ])
+        
+        # Recherche du service PMScan (celui qui a le plus de caractéristiques)
+        pmscan_service = max(services, key=lambda s: len(s.characteristics))
+        _LOGGER.info("Service principal détecté: %s avec %d caractéristiques", 
+                    pmscan_service.uuid, len(pmscan_service.characteristics))
+            
+        # Découverte des caractéristiques
+        _LOGGER.debug("Analyse des caractéristiques disponibles:")
+        for char in pmscan_service.characteristics:
+            _LOGGER.debug("- UUID: %s", char.uuid)
+            _LOGGER.debug("  Propriétés: %s", char.properties)
+            _LOGGER.debug("  Description: %s", getattr(char, 'description', 'Non disponible'))
+            
+            # On identifie les caractéristiques par leurs propriétés
+            if "notify" in char.properties and "read" in char.properties:
+                characteristics['real_time_data'] = char.uuid
+                _LOGGER.info("Caractéristique Real-Time Data trouvée: %s", char.uuid)
+            elif "write" in char.properties and "read" in char.properties:
+                if 'measurement_interval' not in characteristics:
+                    characteristics['measurement_interval'] = char.uuid
+                    _LOGGER.info("Caractéristique Measurement Interval trouvée: %s", char.uuid)
+                else:
+                    characteristics['current_time'] = char.uuid
+                    _LOGGER.info("Caractéristique Current Time trouvée: %s", char.uuid)
+        
+        _LOGGER.info("Caractéristiques découvertes: %s", characteristics)
+        
+        # Vérification des caractéristiques requises
+        required_chars = ['real_time_data']
+        missing_chars = [char for char in required_chars if char not in characteristics]
+        if missing_chars:
+            _LOGGER.warning("Caractéristiques manquantes: %s", missing_chars)
+            
     except Exception as e:
         _LOGGER.error("Erreur lors de la découverte des caractéristiques: %s", str(e))
     

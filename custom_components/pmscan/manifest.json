@@ -7,8 +7,7 @@
   "requirements": ["bleak>=0.21.1"],
   "bluetooth": [
     {
-      "local_name": "PMScan*",
-      "service_uuid": "f3641900-b000-4042-ba50-05ca45bf8abc"
+      "local_name": "PMScan*"
     }
   ],
   "version": "1.0.0",
