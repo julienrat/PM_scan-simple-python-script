@@ -293,9 +293,12 @@ class PMScanStateSensor(PMScanSensor):
         super().__init__(discovery_info)
         self._attr_name = f"PMScan {discovery_info.name} État"
         self._attr_unique_id = f"{discovery_info.address}_state"
-        self._attr_state_class = None  # Désactive la classe d'état pour permettre les valeurs non numériques
+        self._attr_state_class = None
         self._attr_icon = "mdi:state-machine"
         self.value_type = "state"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+        self._attr_suggested_display_precision = None
 
     @property
     def native_value(self) -> str | None:
@@ -312,9 +315,12 @@ class PMScanCommandSensor(PMScanSensor):
         super().__init__(discovery_info)
         self._attr_name = f"PMScan {discovery_info.name} Commande"
         self._attr_unique_id = f"{discovery_info.address}_command"
-        self._attr_state_class = None  # Désactive la classe d'état pour permettre les valeurs non numériques
+        self._attr_state_class = None
         self._attr_icon = "mdi:console"
         self.value_type = "command"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+        self._attr_suggested_display_precision = None
 
     @property
     def native_value(self) -> str | None:
