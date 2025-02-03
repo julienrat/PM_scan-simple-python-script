@@ -6,8 +6,8 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.core import callback
 from homeassistant import config_entries
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
