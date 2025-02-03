@@ -147,18 +147,62 @@ function updateQualityIndicator(pm10) {
 // Mise à jour de l'état de charge
 function updateChargingStatus(state) {
     const statusElement = document.getElementById('chargingStatus');
+    const iconElement = document.getElementById('chargingIcon');
+    const batteryInfo = document.getElementById('batteryInfo');
+    const batteryLevel = document.getElementById('batteryLevel');
+
     switch (state) {
         case 0:
             statusElement.textContent = 'Non branché';
+            iconElement.className = 'bi bi-battery me-2';
+            batteryInfo.className = 'alert alert-warning mt-2 small';
+            batteryInfo.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>Appareil sur batterie';
             break;
         case 1:
             statusElement.textContent = 'En charge';
+            iconElement.className = 'bi bi-lightning-charge me-2';
+            batteryInfo.className = 'alert alert-info mt-2 small';
+            batteryInfo.innerHTML = '<i class="bi bi-info-circle me-2"></i>Batterie en charge';
+            batteryLevel.style.backgroundColor = '#ffc107';
             break;
         case 2:
             statusElement.textContent = 'Charge terminée';
+            iconElement.className = 'bi bi-battery-full me-2';
+            batteryInfo.className = 'alert alert-success mt-2 small';
+            batteryInfo.innerHTML = '<i class="bi bi-check-circle me-2"></i>Batterie complètement chargée';
+            batteryLevel.style.backgroundColor = '#28a745';
             break;
         default:
             statusElement.textContent = 'État inconnu';
+            iconElement.className = 'bi bi-question-circle me-2';
+            batteryInfo.className = 'alert alert-secondary mt-2 small';
+            batteryInfo.innerHTML = '<i class="bi bi-question-circle me-2"></i>État de la batterie inconnu';
+    }
+}
+
+// Mise à jour du niveau de batterie
+function updateBatteryLevel(value) {
+    const batteryLevel = document.getElementById('batteryLevel');
+    const batteryPercentage = document.getElementById('batteryPercentage');
+    const batteryInfo = document.getElementById('batteryInfo');
+
+    batteryLevel.style.width = `${value}%`;
+    batteryPercentage.textContent = `${value}%`;
+
+    // Mise à jour de la couleur en fonction du niveau
+    if (value <= 20) {
+        batteryLevel.style.backgroundColor = '#dc3545';
+        batteryPercentage.className = 'badge bg-danger';
+        if (value <= 10) {
+            batteryInfo.className = 'alert alert-danger mt-2 small';
+            batteryInfo.innerHTML = '<i class="bi bi-exclamation-circle me-2"></i>Batterie très faible !';
+        }
+    } else if (value <= 50) {
+        batteryLevel.style.backgroundColor = '#ffc107';
+        batteryPercentage.className = 'badge bg-warning text-dark';
+    } else {
+        batteryLevel.style.backgroundColor = '#28a745';
+        batteryPercentage.className = 'badge bg-success';
     }
 }
 
@@ -263,17 +307,13 @@ async function connectToPMScan() {
         await batteryLevelChar.startNotifications();
         batteryLevelChar.addEventListener('characteristicvaluechanged', (event) => {
             const value = event.target.value.getUint8(0);
-            const batteryLevel = document.getElementById('batteryLevel');
-            batteryLevel.style.width = `${value}%`;
-            document.getElementById('batteryPercentage').textContent = `${value}%`;
+            updateBatteryLevel(value);
         });
 
         // Lecture initiale du niveau de batterie
         const batteryLevel = await batteryLevelChar.readValue();
         const batteryValue = batteryLevel.getUint8(0);
-        const batteryLevelElement = document.getElementById('batteryLevel');
-        batteryLevelElement.style.width = `${batteryValue}%`;
-        document.getElementById('batteryPercentage').textContent = `${batteryValue}%`;
+        updateBatteryLevel(batteryValue);
 
         // Configuration des notifications pour l'état de charge
         const batteryChargingChar = await service.getCharacteristic(BATTERY_CHARGING_UUID);
