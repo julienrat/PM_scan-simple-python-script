@@ -196,79 +196,113 @@ async def async_setup_entry(
                 async with BleakClient(device, timeout=CONNECTION_TIMEOUT) as client:
                     _LOGGER.info("Connexion établie avec le PMScan %s (tentative %d/%d)", 
                                address, connection_attempts, MAX_CONNECTION_ATTEMPTS)
-                    connection_attempts = 0  # Réinitialisation du compteur après une connexion réussie
+
+                    # Vérification de la connexion
+                    if not client.is_connected:
+                        _LOGGER.error("La connexion a échoué immédiatement après l'établissement")
+                        raise Exception("Échec de la connexion")
+
+                    # Attente courte pour stabiliser la connexion
+                    await asyncio.sleep(1)
                     
-                    # Configuration de l'intervalle de mesure
-                    interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
-                    await client.write_gatt_char(REAL_TIME_DATA_UUID, interval_bytes)
-                    _LOGGER.info("Intervalle de mesure configuré à %d secondes", measurement_interval)
+                    try:
+                        # Découverte des services
+                        services = await client.get_services()
+                        if not services:
+                            _LOGGER.error("Aucun service découvert sur l'appareil")
+                            raise Exception("Aucun service découvert")
 
-                    last_update = None
-                    check_interval = asyncio.create_task(asyncio.sleep(0))
+                        # Vérification du service PMScan
+                        pmscan_service = None
+                        for service in services:
+                            if service.uuid.lower() == PMSCAN_SERVICE_UUID.lower():
+                                pmscan_service = service
+                                break
 
-                    def notification_handler(sender: int, data: bytearray) -> None:
-                        """Handle notification from PMScan device."""
-                        nonlocal last_update
-                        _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
-                        
-                        # Gestion des différentes caractéristiques
-                        if str(sender).endswith(REAL_TIME_DATA_UUID[-12:]):
-                            parsed_data = parse_notification_data(data)
-                            if parsed_data:
-                                last_update = dt_util.utcnow()
+                        if not pmscan_service:
+                            _LOGGER.error("Service PMScan non trouvé")
+                            raise Exception("Service PMScan non trouvé")
+
+                        _LOGGER.info("Service PMScan trouvé avec succès")
+                        connection_attempts = 0  # Réinitialisation du compteur après une connexion réussie
+                    
+                        # Configuration de l'intervalle de mesure
+                        interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
+                        await client.write_gatt_char(REAL_TIME_DATA_UUID, interval_bytes)
+                        _LOGGER.info("Intervalle de mesure configuré à %d secondes", measurement_interval)
+
+                        last_update = None
+                        check_interval = asyncio.create_task(asyncio.sleep(0))
+
+                        def notification_handler(sender: int, data: bytearray) -> None:
+                            """Handle notification from PMScan device."""
+                            nonlocal last_update
+                            _LOGGER.debug("Notification reçue de %s: %s", sender, data.hex())
+                            
+                            # Gestion des différentes caractéristiques
+                            if str(sender).endswith(REAL_TIME_DATA_UUID[-12:]):
+                                parsed_data = parse_notification_data(data)
+                                if parsed_data:
+                                    last_update = dt_util.utcnow()
+                                    for sensor in sensors:
+                                        if sensor.value_type in parsed_data:
+                                            sensor.update_value(parsed_data[sensor.value_type])
+                            
+                            elif str(sender).endswith(BATTERY_LEVEL_UUID[-12:]):
+                                battery_level = data[0]
+                                _LOGGER.debug("Niveau de batterie reçu: %d%%", battery_level)
                                 for sensor in sensors:
-                                    if sensor.value_type in parsed_data:
-                                        sensor.update_value(parsed_data[sensor.value_type])
+                                    if sensor.value_type == "battery_level":
+                                        sensor.update_value(battery_level)
+                            
+                            elif str(sender).endswith(BATTERY_CHARGING_UUID[-12:]):
+                                charging_state = data[0]
+                                _LOGGER.debug("État de charge reçu: %d", charging_state)
+                                for sensor in sensors:
+                                    if sensor.value_type == "battery_charging":
+                                        sensor.update_value(charging_state)
+
+                        # Activation des notifications pour toutes les caractéristiques
+                        await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
+                        _LOGGER.info("Notifications activées pour les données temps réel")
                         
-                        elif str(sender).endswith(BATTERY_LEVEL_UUID[-12:]):
-                            battery_level = data[0]
-                            _LOGGER.debug("Niveau de batterie reçu: %d%%", battery_level)
+                        await client.start_notify(BATTERY_LEVEL_UUID, notification_handler)
+                        _LOGGER.info("Notifications activées pour le niveau de batterie")
+                        
+                        await client.start_notify(BATTERY_CHARGING_UUID, notification_handler)
+                        _LOGGER.info("Notifications activées pour l'état de charge")
+
+                        # Lecture initiale du niveau de batterie et de l'état de charge
+                        try:
+                            battery_level = await client.read_gatt_char(BATTERY_LEVEL_UUID)
+                            charging_state = await client.read_gatt_char(BATTERY_CHARGING_UUID)
+                            
+                            # Mise à jour des capteurs avec les valeurs initiales
                             for sensor in sensors:
                                 if sensor.value_type == "battery_level":
-                                    sensor.update_value(battery_level)
-                        
-                        elif str(sender).endswith(BATTERY_CHARGING_UUID[-12:]):
-                            charging_state = data[0]
-                            _LOGGER.debug("État de charge reçu: %d", charging_state)
-                            for sensor in sensors:
-                                if sensor.value_type == "battery_charging":
-                                    sensor.update_value(charging_state)
+                                    sensor.update_value(battery_level[0])
+                                elif sensor.value_type == "battery_charging":
+                                    sensor.update_value(charging_state[0])
+                        except Exception as e:
+                            _LOGGER.warning("Erreur lors de la lecture initiale de la batterie: %s", str(e))
 
-                    # Activation des notifications pour toutes les caractéristiques
-                    await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
-                    _LOGGER.info("Notifications activées pour les données temps réel")
-                    
-                    await client.start_notify(BATTERY_LEVEL_UUID, notification_handler)
-                    _LOGGER.info("Notifications activées pour le niveau de batterie")
-                    
-                    await client.start_notify(BATTERY_CHARGING_UUID, notification_handler)
-                    _LOGGER.info("Notifications activées pour l'état de charge")
-
-                    # Lecture initiale du niveau de batterie et de l'état de charge
-                    try:
-                        battery_level = await client.read_gatt_char(BATTERY_LEVEL_UUID)
-                        charging_state = await client.read_gatt_char(BATTERY_CHARGING_UUID)
-                        
-                        # Mise à jour des capteurs avec les valeurs initiales
-                        for sensor in sensors:
-                            if sensor.value_type == "battery_level":
-                                sensor.update_value(battery_level[0])
-                            elif sensor.value_type == "battery_charging":
-                                sensor.update_value(charging_state[0])
-                    except Exception as e:
-                        _LOGGER.warning("Erreur lors de la lecture initiale de la batterie: %s", str(e))
-
-                    while True:
-                        try:
-                            await check_interval
-                            check_interval = asyncio.create_task(asyncio.sleep(60))  # Vérifie toutes les minutes
-                            
-                            if last_update and dt_util.utcnow() - last_update > MAX_TIME_BETWEEN_UPDATES:
-                                _LOGGER.warning("Pas de données reçues depuis %s", MAX_TIME_BETWEEN_UPDATES)
-                                break
+                        while True:
+                            try:
+                                await check_interval
+                                check_interval = asyncio.create_task(asyncio.sleep(60))  # Vérifie toutes les minutes
                                 
-                        except asyncio.CancelledError:
-                            break
+                                if last_update and dt_util.utcnow() - last_update > MAX_TIME_BETWEEN_UPDATES:
+                                    _LOGGER.warning("Pas de données reçues depuis %s", MAX_TIME_BETWEEN_UPDATES)
+                                    break
+                                    
+                            except asyncio.CancelledError:
+                                break
+
+                    except Exception as e:
+                        _LOGGER.error("Erreur de connexion (tentative %d/%d): %s", 
+                                    connection_attempts, MAX_CONNECTION_ATTEMPTS, str(e))
+                        connection_active = False
+                        await asyncio.sleep(RECONNECTION_DELAY)
 
             except Exception as e:
                 _LOGGER.error("Erreur de connexion (tentative %d/%d): %s", 

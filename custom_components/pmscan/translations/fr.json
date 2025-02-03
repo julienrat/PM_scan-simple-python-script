@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "PMScan",
-                "description": "Recherche des appareils PMScan... {error_message}",
+                "description": "Recherche des appareils PMScan...{error_message}",
                 "data": {
                     "address": "Adresse Bluetooth",
                     "name": "Nom"
@@ -13,12 +13,14 @@
         "error": {
             "cannot_connect": "Impossible de se connecter à l'appareil",
             "no_devices_found": "Aucun appareil PMScan trouvé",
-            "already_configured": "Cet appareil est déjà configuré"
+            "already_configured": "Cet appareil est déjà configuré",
+            "discovery_error": "Erreur lors de la découverte des services Bluetooth"
         },
         "abort": {
             "already_configured": "Cet appareil est déjà configuré",
             "cannot_connect": "Impossible de se connecter à l'appareil",
-            "no_devices_found": "Aucun appareil PMScan trouvé"
+            "no_devices_found": "Aucun appareil PMScan trouvé",
+            "discovery_error": "Erreur lors de la découverte des services Bluetooth"
         }
     },
     "entity": {
@@ -37,6 +39,12 @@
             },
             "humidity": {
                 "name": "Humidité"
+            },
+            "battery_level": {
+                "name": "Niveau de batterie"
+            },
+            "battery_charging": {
+                "name": "État de charge"
             }
         }
     },
