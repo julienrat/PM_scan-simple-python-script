@@ -275,8 +275,13 @@ async function connectToPMScan() {
         connectBtn.textContent = 'Connexion en cours...';
 
         bluetoothDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ services: [PMSCAN_SERVICE_UUID] }],
+            // Accepte tous les appareils avec un nom contenant "PMScan"
+            filters: [
+                { namePrefix: "PMScan" }
+            ],
+            // On ajoute tous les services en optionnel pour pouvoir les utiliser après la connexion
             optionalServices: [
+                PMSCAN_SERVICE_UUID,
                 REAL_TIME_DATA_UUID,
                 MEMORY_DATA_UUID,
                 TEMP_HUMID_ALERT_UUID,
@@ -346,6 +351,28 @@ async function connectToPMScan() {
 
     } catch (error) {
         console.error('Erreur de connexion:', error);
+        let errorMessage = 'Erreur de connexion inconnue';
+        
+        if (error.name === 'NotFoundError') {
+            errorMessage = 'Aucun appareil PMScan trouvé à proximité';
+        } else if (error.name === 'SecurityError') {
+            errorMessage = 'Accès Bluetooth refusé par le navigateur';
+        } else if (error.name === 'NotSupportedError') {
+            errorMessage = 'Bluetooth non supporté par votre appareil ou navigateur';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+
+        // Affichage de l'erreur dans l'interface
+        const deviceInfo = document.getElementById('deviceInfo');
+        deviceInfo.classList.remove('d-none');
+        deviceInfo.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                ${errorMessage}
+            </div>
+        `;
+
         onDisconnected();
     }
 }
