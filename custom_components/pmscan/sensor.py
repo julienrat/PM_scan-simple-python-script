@@ -26,6 +26,10 @@ from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# Définition des caractéristiques Bluetooth
+PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
+REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigType, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -55,6 +59,7 @@ class PMScanSensor(SensorEntity):
         self._attr_device_class = None
         self._attr_native_unit_of_measurement = None
         self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._value = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -65,6 +70,22 @@ class PMScanSensor(SensorEntity):
             "manufacturer": "Tera Sensor",
             "model": "PMScan",
         }
+
+    async def async_update(self) -> None:
+        """Update the sensor."""
+        if self._discovery_info.service_data and REAL_TIME_DATA_UUID in self._discovery_info.service_data:
+            data = self._discovery_info.service_data[REAL_TIME_DATA_UUID]
+            self._value = self._parse_data(data)
+            _LOGGER.debug("Données mises à jour pour %s: %s", self.name, self._value)
+
+    def _parse_data(self, data: bytes) -> float | None:
+        """Parse sensor data."""
+        try:
+            # Implémentation spécifique dans les classes enfants
+            return None
+        except Exception as e:
+            _LOGGER.error("Erreur lors de l'analyse des données: %s", str(e))
+            return None
 
 class PMScanPM1Sensor(PMScanSensor):
     """Representation of a PMScan PM1.0 sensor."""
@@ -77,6 +98,17 @@ class PMScanPM1Sensor(PMScanSensor):
         self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
         self._attr_device_class = SensorDeviceClass.PM1
 
+    @property
+    def native_value(self) -> float | None:
+        """Return the PM1.0 value."""
+        return self._value
+
+    def _parse_data(self, data: bytes) -> float | None:
+        """Parse PM1.0 data."""
+        if len(data) >= 2:
+            return int.from_bytes(data[0:2], byteorder='little') / 10.0
+        return None
+
 class PMScanPM25Sensor(PMScanSensor):
     """Representation of a PMScan PM2.5 sensor."""
 
@@ -87,6 +119,17 @@ class PMScanPM25Sensor(PMScanSensor):
         self._attr_unique_id = f"{discovery_info.address}_pm2_5"
         self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
         self._attr_device_class = SensorDeviceClass.PM25
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the PM2.5 value."""
+        return self._value
+
+    def _parse_data(self, data: bytes) -> float | None:
+        """Parse PM2.5 data."""
+        if len(data) >= 4:
+            return int.from_bytes(data[2:4], byteorder='little') / 10.0
+        return None
 
 class PMScanPM10Sensor(PMScanSensor):
     """Representation of a PMScan PM10 sensor."""
@@ -99,6 +142,17 @@ class PMScanPM10Sensor(PMScanSensor):
         self._attr_native_unit_of_measurement = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
         self._attr_device_class = SensorDeviceClass.PM10
 
+    @property
+    def native_value(self) -> float | None:
+        """Return the PM10 value."""
+        return self._value
+
+    def _parse_data(self, data: bytes) -> float | None:
+        """Parse PM10 data."""
+        if len(data) >= 6:
+            return int.from_bytes(data[4:6], byteorder='little') / 10.0
+        return None
+
 class PMScanTemperatureSensor(PMScanSensor):
     """Representation of a PMScan temperature sensor."""
 
@@ -110,6 +164,17 @@ class PMScanTemperatureSensor(PMScanSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
 
+    @property
+    def native_value(self) -> float | None:
+        """Return the temperature value."""
+        return self._value
+
+    def _parse_data(self, data: bytes) -> float | None:
+        """Parse temperature data."""
+        if len(data) >= 8:
+            return int.from_bytes(data[6:8], byteorder='little') / 10.0
+        return None
+
 class PMScanHumiditySensor(PMScanSensor):
     """Representation of a PMScan humidity sensor."""
 
@@ -119,4 +184,15 @@ class PMScanHumiditySensor(PMScanSensor):
         self._attr_name = "Humidity"
         self._attr_unique_id = f"{discovery_info.address}_humidity"
         self._attr_native_unit_of_measurement = PERCENTAGE
-        self._attr_device_class = SensorDeviceClass.HUMIDITY 
+        self._attr_device_class = SensorDeviceClass.HUMIDITY
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the humidity value."""
+        return self._value
+
+    def _parse_data(self, data: bytes) -> float | None:
+        """Parse humidity data."""
+        if len(data) >= 10:
+            return int.from_bytes(data[8:10], byteorder='little') / 10.0
+        return None 
