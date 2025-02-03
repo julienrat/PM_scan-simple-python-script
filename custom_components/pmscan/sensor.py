@@ -293,6 +293,8 @@ class PMScanStateSensor(PMScanSensor):
         super().__init__(discovery_info)
         self._attr_name = f"PMScan {discovery_info.name} État"
         self._attr_unique_id = f"{discovery_info.address}_state"
+        self._attr_state_class = None  # Désactive la classe d'état pour permettre les valeurs non numériques
+        self._attr_icon = "mdi:state-machine"
         self.value_type = "state"
 
     @property
@@ -310,6 +312,8 @@ class PMScanCommandSensor(PMScanSensor):
         super().__init__(discovery_info)
         self._attr_name = f"PMScan {discovery_info.name} Commande"
         self._attr_unique_id = f"{discovery_info.address}_command"
+        self._attr_state_class = None  # Désactive la classe d'état pour permettre les valeurs non numériques
+        self._attr_icon = "mdi:console"
         self.value_type = "command"
 
     @property
@@ -328,6 +332,7 @@ class PMScanParticlesSensor(PMScanSensor):
         self._attr_name = f"PMScan {discovery_info.name} Particules"
         self._attr_unique_id = f"{discovery_info.address}_particles"
         self._attr_native_unit_of_measurement = "p/ml"
+        self._attr_icon = "mdi:molecule"
         self.value_type = "particles_count"
 
     @property
