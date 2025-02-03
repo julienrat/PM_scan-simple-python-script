@@ -8,7 +8,7 @@
   "bluetooth": [
     {
       "local_name": "PMScan*",
-      "service_uuid": "f3641900-00b0-4240-ba50-05ca45bf8abc"
+      "service_uuid": "f3641900-b000-4042-ba50-05ca45bf8abc"
     }
   ],
   "version": "1.0.0",

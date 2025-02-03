@@ -34,10 +34,11 @@ from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Définition des caractéristiques Bluetooth
-PMSCAN_SERVICE_UUID = "f3641900-00b0-4240-ba50-05ca45bf8abc"
-REAL_TIME_DATA_UUID = "f3641901-00b0-4240-ba50-05ca45bf8abc"
-MEASUREMENT_INTERVAL_UUID = "f3641902-00b0-4240-ba50-05ca45bf8abc"
+# Préfixes des UUIDs pour identifier les caractéristiques
+PMSCAN_SERVICE_PREFIX = "f3641900"
+REAL_TIME_DATA_PREFIX = "f3641901"
+MEASUREMENT_INTERVAL_PREFIX = "f3641907"
+CURRENT_TIME_PREFIX = "f3641906"
 
 # Intervalle de mesure par défaut en secondes
 DEFAULT_MEASUREMENT_INTERVAL = 5
@@ -51,9 +52,29 @@ MAX_TIME_BETWEEN_UPDATES = timedelta(seconds=10)
 def parse_notification_data(data: bytearray) -> dict[str, float]:
     """Parse notification data from PMScan device."""
     try:
+        _LOGGER.debug("Notification reçue: %s", data.hex())
         _LOGGER.debug("Analyse des données brutes: %s", data.hex())
-        # Format des données: timestamp, state, cmd, particles, PM1.0, PM2.5, PM10, Temp, Humidity
+        
+        # Format des données selon la spécification:
+        # 0x AA AA AA AA BB CC DD DD EE EE FF FF GG GG HH HH II II XX XX
+        # AA AA AA AA -> Timestamp (uint32)
+        # BB -> NextPM State byte
+        # CC -> NextPM Command ID byte
+        # DD DD -> Particles count/ml (PM 10.0)
+        # EE EE -> PM 1.0 (μg/m3) (doit être divisé par 10)
+        # FF FF -> PM 2.5 (μg/m3) (doit être divisé par 10)
+        # GG GG -> PM 10.0 (μg/m3) (doit être divisé par 10)
+        # HH HH -> Temperature (doit être divisé par 10)
+        # II II -> Humidity (doit être divisé par 10)
+        # XX XX -> Pour usage futur
+        
         timestamp, state, cmd, particles, pm1_0, pm2_5, pm10_0, temp, humidity, _ = struct.unpack("<IBBHHHHHHh", data)
+        
+        # Vérifier si les valeurs PM sont valides (pas 0xFFFF qui indique une période de démarrage)
+        if pm1_0 == 0xFFFF or pm2_5 == 0xFFFF or pm10_0 == 0xFFFF:
+            _LOGGER.debug("Données PM invalides pendant la période de démarrage")
+            return {}
+            
         result = {
             "pm1_0": pm1_0 / 10.0,
             "pm2_5": pm2_5 / 10.0,
@@ -113,10 +134,22 @@ async def async_setup_entry(
                 async with BleakClient(device, timeout=20.0) as client:
                     _LOGGER.info("Connexion établie avec le PMScan %s", address)
                     
-                    # Configuration de l'intervalle de mesure
-                    interval_bytes = measurement_interval.to_bytes(2, byteorder='little')
-                    await client.write_gatt_char(MEASUREMENT_INTERVAL_UUID, interval_bytes)
-                    _LOGGER.info("Intervalle de mesure configuré à %d secondes", measurement_interval)
+                    # Découverte des caractéristiques
+                    characteristics = await discover_characteristics(client)
+                    if not characteristics:
+                        _LOGGER.error("Impossible de trouver les caractéristiques nécessaires")
+                        await asyncio.sleep(5)
+                        continue
+                    
+                    # Envoi du timestamp actuel pour démarrer les mesures
+                    current_timestamp = int(datetime.now().timestamp())
+                    timestamp_bytes = current_timestamp.to_bytes(4, byteorder='little')
+                    await client.write_gatt_char(characteristics['current_time'], timestamp_bytes)
+                    _LOGGER.info("Timestamp envoyé: %d", current_timestamp)
+                    
+                    # Configuration de l'intervalle de mesure (5 = 1 seconde)
+                    await client.write_gatt_char(characteristics['measurement_interval'], bytes([5]))
+                    _LOGGER.info("Intervalle de mesure configuré à 1 seconde")
 
                     last_update = None
                     check_interval = asyncio.create_task(asyncio.sleep(0))
@@ -133,8 +166,8 @@ async def async_setup_entry(
                                     sensor.update_value(parsed_data[sensor.value_type])
 
                     # Activation des notifications
-                    await client.start_notify(REAL_TIME_DATA_UUID, notification_handler)
-                    _LOGGER.info("Notifications activées pour %s", REAL_TIME_DATA_UUID)
+                    await client.start_notify(characteristics['real_time_data'], notification_handler)
+                    _LOGGER.info("Notifications activées pour %s", characteristics['real_time_data'])
 
                     # Boucle de vérification des mises à jour
                     while True:
@@ -158,7 +191,7 @@ async def async_setup_entry(
                             await asyncio.sleep(1)
                     else:
                         # Sinon, on se déconnecte après chaque mise à jour
-                        await client.stop_notify(REAL_TIME_DATA_UUID)
+                        await client.stop_notify(characteristics['real_time_data'])
                         _LOGGER.info("Déconnexion du PMScan %s", address)
                         return
 
@@ -336,4 +369,31 @@ class PMScanHumiditySensor(PMScanSensor):
     @property
     def native_value(self) -> float | None:
         """Return the humidity value."""
-        return self._value 
+        return self._value
+
+async def discover_characteristics(client: BleakClient) -> dict[str, str]:
+    """Découvre les caractéristiques du PMScan."""
+    characteristics = {}
+    
+    try:
+        services = await client.get_services()
+        for service in services:
+            if PMSCAN_SERVICE_PREFIX in service.uuid.lower():
+                _LOGGER.debug("Service PMScan trouvé: %s", service.uuid)
+                for char in service.characteristics:
+                    char_uuid = char.uuid.lower()
+                    _LOGGER.debug("Caractéristique trouvée: %s", char_uuid)
+                    
+                    if REAL_TIME_DATA_PREFIX in char_uuid:
+                        characteristics['real_time_data'] = char.uuid
+                    elif MEASUREMENT_INTERVAL_PREFIX in char_uuid:
+                        characteristics['measurement_interval'] = char.uuid
+                    elif CURRENT_TIME_PREFIX in char_uuid:
+                        characteristics['current_time'] = char.uuid
+                
+                _LOGGER.info("Caractéristiques découvertes: %s", characteristics)
+                break
+    except Exception as e:
+        _LOGGER.error("Erreur lors de la découverte des caractéristiques: %s", str(e))
+    
+    return characteristics 
