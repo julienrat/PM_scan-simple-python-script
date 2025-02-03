@@ -80,37 +80,36 @@ _LOGGER.debug("État charge: %s", BATTERY_CHARGING_UUID)
 def parse_notification_data(data: bytearray) -> dict[str, Any]:
     """Parse notification data from PMScan device."""
     try:
-        if len(data) != 20:
-            _LOGGER.error("Taille des données invalide: %d bytes (attendu: 20 bytes)", len(data))
+        if len(data) < 16:
+            _LOGGER.error("Taille des données invalide: %d bytes (attendu: minimum 16 bytes)", len(data))
             return {}
 
         _LOGGER.debug("Données brutes: %s", ' '.join(f'{x:02X}' for x in data))
         
-        # Format: CC F9 A0 67 00 11 XX YY ZZ WW VV UU TT SS RR QQ
-        # CC: Compteur
-        # F9 A0 67: En-tête fixe
+        # Format: XX FA A0 67 00 11 PM1L PM1H PM25L PM25H PM10L PM10H TEMPL TEMPH HUML HUMH
+        # XX: Compteur
+        # FA A0 67: En-tête fixe
         # 00 11: Commande
-        # XX YY: PM1.0 (YY.XX µg/m³)
-        # ZZ WW: PM2.5 (WW.ZZ µg/m³)
-        # VV UU: PM10 (UU.VV µg/m³)
-        # TT SS: Température (SS.TT °C)
-        # RR QQ: Humidité (QQ.RR %)
+        # PM1L PM1H: PM1.0 (valeur = PM1H << 8 | PM1L)
+        # PM25L PM25H: PM2.5 (valeur = PM25H << 8 | PM25L)
+        # PM10L PM10H: PM10 (valeur = PM10H << 8 | PM10L)
+        # TEMPL TEMPH: Température (valeur = (TEMPH << 8 | TEMPL) / 10.0)
+        # HUML HUMH: Humidité (valeur = (HUMH << 8 | HUML) / 10.0)
         
-        if data[1:4] != b'\xf9\xa0\x67':
-            _LOGGER.error("En-tête invalide")
+        if data[1:4] != b'\xfa\xa0\x67':
+            _LOGGER.error("En-tête invalide: %s", ' '.join(f'{x:02X}' for x in data[1:4]))
             return {}
             
-        pm1_0 = (data[7] << 8 | data[6]) / 10.0
-        pm2_5 = (data[9] << 8 | data[8]) / 10.0
-        pm10_0 = (data[11] << 8 | data[10]) / 10.0
-        temp = (data[13] << 8 | data[12]) / 10.0
-        humidity = (data[15] << 8 | data[14]) / 10.0
+        pm1_0 = float(data[7] << 8 | data[6])
+        pm2_5 = float(data[9] << 8 | data[8])
+        pm10_0 = float(data[11] << 8 | data[10])
+        temp = float(data[13] << 8 | data[12]) / 10.0
+        humidity = float(data[15] << 8 | data[14]) / 10.0
         
         # Vérification des valeurs
         if pm1_0 > 1000 or pm2_5 > 1000 or pm10_0 > 1000:
             _LOGGER.warning("Valeurs PM anormales détectées: PM1.0=%f, PM2.5=%f, PM10=%f", 
                           pm1_0, pm2_5, pm10_0)
-            return {}
             
         if humidity > 100:
             _LOGGER.warning("Valeur d'humidité anormale détectée: %f%%", humidity)
